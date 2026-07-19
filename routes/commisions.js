@@ -9,7 +9,6 @@ router.get("/:projectId", auth, async (req, res) => {
   try {
     const commissions = await Commission.find({
       project: req.params.projectId,
-      user: req.userId,
     }).sort({ date: -1 });
     res.json({ success: true, commissions });
   } catch (err) {
@@ -50,7 +49,7 @@ router.post("/:projectId", auth, async (req, res) => {
 // DELETE /commissions/:id
 router.delete("/:id", auth, async (req, res) => {
   try {
-    await Commission.findOneAndDelete({ _id: req.params.id, user: req.userId });
+    await Commission.findOneAndDelete({ _id: req.params.id });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: err.message });
