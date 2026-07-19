@@ -66,8 +66,14 @@ router.get("/", auth, async (req, res) => {
           const soldPrice = apt.soldPrice || apt.price || 0;
 
           if (apt.paymentType === "cash") {
-            actualSales += soldPrice;
-            fullyPaidCount++;
+            const cashReceived = apt.cashPaid || 0;
+            actualSales += cashReceived;
+
+            if (cashReceived >= soldPrice) {
+              fullyPaidCount++;
+            } else {
+              inProgressCount++;
+            }
           } else if (apt.paymentType === "installments") {
             const totalPayments = (apt.payments || [])
               .filter(p => p.isPaid === true)
@@ -168,8 +174,14 @@ router.get("/:id", auth, async (req, res) => {
       const soldPrice = apt.soldPrice || apt.price || 0;
 
       if (apt.paymentType === "cash") {
-        actualSales += soldPrice;
-        fullyPaidCount++;
+        const cashReceived = apt.cashPaid || 0;
+        actualSales += cashReceived;
+
+        if (cashReceived >= soldPrice) {
+          fullyPaidCount++;
+        } else {
+          inProgressCount++;
+        }
       } else if (apt.paymentType === "installments") {
         const totalPayments = (apt.payments || [])
           .filter(p => p.isPaid === true)
@@ -284,8 +296,10 @@ router.put("/:id", auth, async (req, res) => {
       const soldPrice = apt.soldPrice || apt.price || 0;
 
       if (apt.paymentType === "cash") {
-        actualSales += soldPrice;
-        fullyPaidCount++;
+        const cashReceived = apt.cashPaid || 0;
+        actualSales += cashReceived;
+        if (cashReceived >= soldPrice) fullyPaidCount++;
+        else inProgressCount++;
       } else if (apt.paymentType === "installments") {
         const totalPayments = (apt.payments || [])
           .filter(p => p.isPaid === true)

@@ -82,8 +82,13 @@ exports.exportProjectToExcel = async (req, res) => {
       if (apt.isSold) {
         const soldPrice = apt.soldPrice || apt.price || 0;
         if (apt.paymentType === 'cash') {
-          actualSales += soldPrice;
-          totalPaid   += soldPrice;
+          const paidPayments = (apt.payments || []).filter(p => p.isPaid);
+          const payments = paidPayments.length > 0
+            ? paidPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
+            : (apt.cashPaid || 0);
+          actualSales    += payments;
+          totalPaid      += payments;
+          totalRemaining += soldPrice - payments;
         } else {
           const paidPayments = (apt.payments || []).filter(p => p.isPaid);
           const payments = paidPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
@@ -182,7 +187,10 @@ exports.exportProjectToExcel = async (req, res) => {
       let totalPaidApartment  = 0;
       if (apt.isSold) {
         if (apt.paymentType === 'cash') {
-          totalPaidApartment = soldPrice;
+          const paidPayments = (apt.payments || []).filter(p => p.isPaid);
+          totalPaidApartment = paidPayments.length > 0
+            ? paidPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
+            : (apt.cashPaid || 0);
         } else {
           totalPaidApartment = (apt.payments || [])
             .filter(p => p.isPaid)
