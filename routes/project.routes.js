@@ -108,7 +108,7 @@ router.get("/", auth, async (req, res) => {
             : 0;
 
         const actualProfitPercent =
-          actualSales > 0 ? ((actualProfit / actualSales) * 100).toFixed(2) : 0;
+          totalExpenses > 0 ? ((actualProfit / totalExpenses) * 100).toFixed(2) : 0;
 
         return {
           _id: project._id,
@@ -221,7 +221,7 @@ router.get("/:id", auth, async (req, res) => {
         : 0;
 
     const actualProfitPercent =
-      actualSales > 0 ? ((actualProfit / actualSales) * 100).toFixed(2) : 0;
+      totalExpenses > 0 ? ((actualProfit / totalExpenses) * 100).toFixed(2) : 0;
 
     const projectData = {
       _id: project._id,

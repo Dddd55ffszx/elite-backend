@@ -112,7 +112,7 @@ exports.exportProjectToExcel = async (req, res) => {
     const estimatedProfit        = estimatedSales - totalCosts;
     const actualProfit           = actualSales    - totalCosts;
     const estimatedProfitPercent = estimatedSales > 0 ? ((estimatedProfit / estimatedSales) * 100).toFixed(2) : 0;
-    const actualProfitPercent    = actualSales    > 0 ? ((actualProfit    / actualSales)    * 100).toFixed(2) : 0;
+    const actualProfitPercent    = totalCosts     > 0 ? ((actualProfit    / totalCosts)      * 100).toFixed(2) : 0;
 
     const statsHeaderRow = infoData.length + 5 + 1;
     summarySheet.addRow([]);

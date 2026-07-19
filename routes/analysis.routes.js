@@ -195,7 +195,7 @@ router.get("/", auth, async (req, res) => {
         y.actualProfit = y.actualSales - y.totalExpenses;
         y.eliteIndebtedness = y.actualProfit + y.tadaemMicheal;
         y.occupancyRate = y.totalUnits ? (y.soldCount / y.totalUnits) * 100 : 0;
-        y.profitMargin = y.actualSales ? (y.actualProfit / y.actualSales) * 100 : 0;
+        y.profitMargin = y.totalExpenses ? (y.actualProfit / y.totalExpenses) * 100 : 0;
         return y;
       })
       .filter((y) => {
@@ -525,7 +525,7 @@ router.get("/export", auth, async (req, res) => {
         y.totalExpenses = y.projectExpenses + y.generalExpenses + y.commissions;
         y.actualProfit = y.actualSales - y.totalExpenses;
         y.eliteIndebtedness = y.actualProfit + y.tadaemMicheal;
-        y.profitMargin = y.actualSales ? (y.actualProfit / y.actualSales) * 100 : 0;
+        y.profitMargin = y.totalExpenses ? (y.actualProfit / y.totalExpenses) * 100 : 0;
         y.projectNames = [...new Set(y.projects || [])].join(", ");
         return y;
       })
@@ -707,8 +707,8 @@ router.get("/export", auth, async (req, res) => {
       { metric: "Total Units",                     value: summary.totalUnits },
       {
         metric: "Overall Profit Margin",
-        value: summary.totalActualSales
-          ? ((summary.totalActualProfit / summary.totalActualSales) * 100).toFixed(2) + "%"
+        value: summary.totalExpenses
+          ? ((summary.totalActualProfit / summary.totalExpenses) * 100).toFixed(2) + "%"
           : "0%",
       },
     ]);
