@@ -80,28 +80,39 @@ router.get("/", auth, async (req, res) => {
       if (!apt.isSold) return;
 
       if (apt.paymentType === "cash") {
-        let soldCounted = false;
-        (apt.payments || []).forEach((p) => {
-          const amount = Number(p.amount) || 0;
-          if (p.isPaid === true) {
-            const payDate = p.paidDate || p.date;
-            if (hasFilter && !isInFilter(payDate)) return;
-            const year = new Date(payDate).getFullYear();
-            ensureYear(year);
-            yearlyMap[year].actualSales += amount;
-            yearlyMap[year].estimatedSales += amount;
-            if (!soldCounted) { yearlyMap[year].soldCount += 1; soldCounted = true; }
-          } else {
-            const dueDate = p.date;
-            if (!dueDate) return;
-            if (hasFilter && !isInFilter(dueDate)) return;
-            const year = new Date(dueDate).getFullYear();
-            ensureYear(year);
-            yearlyMap[year].unpaidInstallments += amount;
-            yearlyMap[year].estimatedSales += amount;
-            if (!soldCounted) { yearlyMap[year].soldCount += 1; soldCounted = true; }
-          }
-        });
+        if ((apt.payments || []).length > 0) {
+          let soldCounted = false;
+          (apt.payments || []).forEach((p) => {
+            const amount = Number(p.amount) || 0;
+            if (p.isPaid === true) {
+              const payDate = p.paidDate || p.date;
+              if (hasFilter && !isInFilter(payDate)) return;
+              const year = new Date(payDate).getFullYear();
+              ensureYear(year);
+              yearlyMap[year].actualSales += amount;
+              yearlyMap[year].estimatedSales += amount;
+              if (!soldCounted) { yearlyMap[year].soldCount += 1; soldCounted = true; }
+            } else {
+              const dueDate = p.date;
+              if (!dueDate) return;
+              if (hasFilter && !isInFilter(dueDate)) return;
+              const year = new Date(dueDate).getFullYear();
+              ensureYear(year);
+              yearlyMap[year].unpaidInstallments += amount;
+              yearlyMap[year].estimatedSales += amount;
+              if (!soldCounted) { yearlyMap[year].soldCount += 1; soldCounted = true; }
+            }
+          });
+        } else {
+          // No payment history => plain cash sale, paid in full at time of sale
+          const cashDate = apt.soldDate || apt.createdAt;
+          if (hasFilter && !isInFilter(cashDate)) return;
+          const year = new Date(cashDate).getFullYear();
+          ensureYear(year);
+          yearlyMap[year].actualSales += soldPrice;
+          yearlyMap[year].estimatedSales += soldPrice;
+          yearlyMap[year].soldCount += 1;
+        }
       }
 
       if (apt.paymentType === "installments") {
@@ -399,27 +410,39 @@ router.get("/export", auth, async (req, res) => {
       if (!apt.isSold) return;
 
       if (apt.paymentType === "cash") {
-        let soldCounted = false;
-        (apt.payments || []).forEach((p) => {
-          const amount = Number(p.amount) || 0;
-          if (p.isPaid === true) {
-            const payDate = p.paidDate || p.date;
-            if (hasFilter && !isInFilter(payDate)) return;
-            const year = new Date(payDate).getFullYear();
-            ensureYear(year);
-            yearlyMap[year].actualSales += amount;
-            yearlyMap[year].estimatedSales += amount;
-            if (!soldCounted) { yearlyMap[year].soldCount += 1; soldCounted = true; }
-          } else {
-            const dueDate = p.date;
-            if (!dueDate || (hasFilter && !isInFilter(dueDate))) return;
-            const year = new Date(dueDate).getFullYear();
-            ensureYear(year);
-            yearlyMap[year].unpaidInstallments += amount;
-            yearlyMap[year].estimatedSales += amount;
-            if (!soldCounted) { yearlyMap[year].soldCount += 1; soldCounted = true; }
-          }
-        });
+        if ((apt.payments || []).length > 0) {
+          let soldCounted = false;
+          (apt.payments || []).forEach((p) => {
+            const amount = Number(p.amount) || 0;
+            if (p.isPaid === true) {
+              const payDate = p.paidDate || p.date;
+              if (hasFilter && !isInFilter(payDate)) return;
+              const year = new Date(payDate).getFullYear();
+              ensureYear(year);
+              yearlyMap[year].actualSales += amount;
+              yearlyMap[year].estimatedSales += amount;
+              if (!soldCounted) { yearlyMap[year].soldCount += 1; soldCounted = true; }
+            } else {
+              const dueDate = p.date;
+              if (!dueDate || (hasFilter && !isInFilter(dueDate))) return;
+              const year = new Date(dueDate).getFullYear();
+              ensureYear(year);
+              yearlyMap[year].unpaidInstallments += amount;
+              yearlyMap[year].estimatedSales += amount;
+              if (!soldCounted) { yearlyMap[year].soldCount += 1; soldCounted = true; }
+            }
+          });
+        } else {
+          // No payment history => plain cash sale, paid in full at time of sale
+          const cashDate = apt.soldDate || apt.createdAt;
+          if (hasFilter && !isInFilter(cashDate)) return;
+          const soldPrice = apt.soldPrice || apt.price || 0;
+          const year = new Date(cashDate).getFullYear();
+          ensureYear(year);
+          yearlyMap[year].actualSales += soldPrice;
+          yearlyMap[year].estimatedSales += soldPrice;
+          yearlyMap[year].soldCount += 1;
+        }
       }
 
       if (apt.paymentType === "installments") {

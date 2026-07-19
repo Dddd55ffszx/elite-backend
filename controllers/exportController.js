@@ -82,13 +82,18 @@ exports.exportProjectToExcel = async (req, res) => {
       if (apt.isSold) {
         const soldPrice = apt.soldPrice || apt.price || 0;
         if (apt.paymentType === 'cash') {
-          const paidPayments = (apt.payments || []).filter(p => p.isPaid);
-          const payments = paidPayments.length > 0
-            ? paidPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
-            : (apt.cashPaid || 0);
-          actualSales    += payments;
-          totalPaid      += payments;
-          totalRemaining += soldPrice - payments;
+          if ((apt.payments || []).length > 0) {
+            const payments = (apt.payments || [])
+              .filter(p => p.isPaid)
+              .reduce((sum, p) => sum + (p.amount || 0), 0);
+            actualSales    += payments;
+            totalPaid      += payments;
+            totalRemaining += soldPrice - payments;
+          } else {
+            // No payment history => plain cash sale, paid in full at time of sale
+            actualSales    += soldPrice;
+            totalPaid      += soldPrice;
+          }
         } else {
           const paidPayments = (apt.payments || []).filter(p => p.isPaid);
           const payments = paidPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
@@ -187,10 +192,14 @@ exports.exportProjectToExcel = async (req, res) => {
       let totalPaidApartment  = 0;
       if (apt.isSold) {
         if (apt.paymentType === 'cash') {
-          const paidPayments = (apt.payments || []).filter(p => p.isPaid);
-          totalPaidApartment = paidPayments.length > 0
-            ? paidPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
-            : (apt.cashPaid || 0);
+          if ((apt.payments || []).length > 0) {
+            totalPaidApartment = (apt.payments || [])
+              .filter(p => p.isPaid)
+              .reduce((sum, p) => sum + (p.amount || 0), 0);
+          } else {
+            // No payment history => plain cash sale, paid in full at time of sale
+            totalPaidApartment = soldPrice;
+          }
         } else {
           totalPaidApartment = (apt.payments || [])
             .filter(p => p.isPaid)

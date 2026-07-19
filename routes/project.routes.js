@@ -66,13 +66,20 @@ router.get("/", auth, async (req, res) => {
           const soldPrice = apt.soldPrice || apt.price || 0;
 
           if (apt.paymentType === "cash") {
-            const cashReceived = apt.cashPaid || 0;
-            actualSales += cashReceived;
+            if ((apt.payments || []).length > 0) {
+              // Some cash sales are tracked with a partial-payment schedule
+              const cashReceived = apt.cashPaid || 0;
+              actualSales += cashReceived;
 
-            if (cashReceived >= soldPrice) {
-              fullyPaidCount++;
+              if (cashReceived >= soldPrice) {
+                fullyPaidCount++;
+              } else {
+                inProgressCount++;
+              }
             } else {
-              inProgressCount++;
+              // No payment history recorded => a plain cash sale, paid in full at time of sale
+              actualSales += soldPrice;
+              fullyPaidCount++;
             }
           } else if (apt.paymentType === "installments") {
             const totalPayments = (apt.payments || [])
@@ -174,13 +181,18 @@ router.get("/:id", auth, async (req, res) => {
       const soldPrice = apt.soldPrice || apt.price || 0;
 
       if (apt.paymentType === "cash") {
-        const cashReceived = apt.cashPaid || 0;
-        actualSales += cashReceived;
+        if ((apt.payments || []).length > 0) {
+          const cashReceived = apt.cashPaid || 0;
+          actualSales += cashReceived;
 
-        if (cashReceived >= soldPrice) {
-          fullyPaidCount++;
+          if (cashReceived >= soldPrice) {
+            fullyPaidCount++;
+          } else {
+            inProgressCount++;
+          }
         } else {
-          inProgressCount++;
+          actualSales += soldPrice;
+          fullyPaidCount++;
         }
       } else if (apt.paymentType === "installments") {
         const totalPayments = (apt.payments || [])
@@ -296,10 +308,15 @@ router.put("/:id", auth, async (req, res) => {
       const soldPrice = apt.soldPrice || apt.price || 0;
 
       if (apt.paymentType === "cash") {
-        const cashReceived = apt.cashPaid || 0;
-        actualSales += cashReceived;
-        if (cashReceived >= soldPrice) fullyPaidCount++;
-        else inProgressCount++;
+        if ((apt.payments || []).length > 0) {
+          const cashReceived = apt.cashPaid || 0;
+          actualSales += cashReceived;
+          if (cashReceived >= soldPrice) fullyPaidCount++;
+          else inProgressCount++;
+        } else {
+          actualSales += soldPrice;
+          fullyPaidCount++;
+        }
       } else if (apt.paymentType === "installments") {
         const totalPayments = (apt.payments || [])
           .filter(p => p.isPaid === true)
