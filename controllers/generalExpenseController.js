@@ -80,7 +80,6 @@ exports.deleteGeneralExpense = async (req, res) => {
 
     const generalExpense = await GeneralExpense.findOne({
       _id: id,
-      user: req.userId,
     });
 
     if (!generalExpense) {
