@@ -1,4 +1,5 @@
 const GeneralExpense = require("../models/GeneralExpense");
+const { adjustBalance } = require("../utils/balanceHelper");
 
 // ================= GET GENERAL EXPENSES =================
 exports.getGeneralExpenses = async (req, res) => {
@@ -49,14 +50,33 @@ exports.addGeneralExpense = async (req, res) => {
       });
     }
 
+    const parsedDate = expenseDate ? new Date(expenseDate) : new Date();
+
     const generalExpense = await GeneralExpense.create({
       reason,
       amount,
-      expenseDate: expenseDate
-        ? new Date(expenseDate)
-        : new Date(),
+      expenseDate: parsedDate,
       user: req.userId,
     });
+
+    // General expenses come out of the shared balance too, same as
+    // project expenses. Store the linkage on `expense` so a later
+    // delete can find and reverse this exact entry.
+    try {
+      await adjustBalance({
+        userId: req.userId,
+        amount: -Math.abs(Number(amount)),
+        type: "expense",
+        description: reason,
+        date: parsedDate,
+        expense: generalExpense._id,
+      });
+    } catch (balanceErr) {
+      console.error(
+        "Balance update failed for new general expense:",
+        balanceErr.message
+      );
+    }
 
     res.json({
       success: true,
@@ -90,6 +110,23 @@ exports.deleteGeneralExpense = async (req, res) => {
     }
 
     await GeneralExpense.findByIdAndDelete(id);
+
+    // Refund whatever this expense deducted from the shared balance.
+    try {
+      await adjustBalance({
+        userId: req.userId,
+        amount: Math.abs(Number(generalExpense.amount)),
+        type: "refund",
+        description: `Refund: ${generalExpense.reason}`,
+        date: new Date(),
+        expense: generalExpense._id,
+      });
+    } catch (balanceErr) {
+      console.error(
+        "Balance update failed for deleted general expense:",
+        balanceErr.message
+      );
+    }
 
     res.json({
       success: true,
