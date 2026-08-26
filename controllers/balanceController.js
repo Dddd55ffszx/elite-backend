@@ -57,3 +57,34 @@ exports.getHistory = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+// DELETE /api/balance/history/:id
+// Only balances added manually ("deposit" entries) can be removed this way.
+// Removing one reverses its effect on the shared balance and deletes the
+// history record. Expense/refund entries stay tied to their expense or
+// commission and should be removed from there instead.
+exports.deleteHistoryEntry = async (req, res) => {
+  try {
+    const entry = await BalanceHistory.findById(req.params.id);
+    if (!entry) {
+      return res.status(404).json({ message: "History entry not found" });
+    }
+    if (entry.type !== "deposit") {
+      return res.status(400).json({
+        message: "Only manually added balance entries can be deleted here",
+      });
+    }
+
+    // Reverse the effect this deposit had on the shared balance, without
+    // creating a new history entry for the reversal itself.
+    const balance = await getOrCreateBalance();
+    balance.currentBalance -= entry.amount;
+    await balance.save();
+
+    await BalanceHistory.findByIdAndDelete(req.params.id);
+
+    res.json({ success: true, balance: balance.currentBalance });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};

@@ -3,6 +3,7 @@ const router = express.Router();
 const auth = require("../middleware/auth");
 const Commission = require("../models/Commission");
 const Apartment = require("../models/Apartment");
+const { adjustBalance } = require("../utils/balanceHelper");
 
 // GET /commissions/:projectId  — all commissions for a project
 router.get("/:projectId", auth, async (req, res) => {
@@ -40,6 +41,21 @@ router.post("/:projectId", auth, async (req, res) => {
     if (apartmentId) commissionData.apartment = apartmentId;
 
     const commission = await Commission.create(commissionData);
+
+    // Commissions come out of the balance, same as project expenses.
+    try {
+      await adjustBalance({
+        userId: req.userId,
+        amount: -Math.abs(Number(amount)),
+        type: "expense",
+        description: `Commission (${label})`,
+        date: commissionData.date,
+        project: req.params.projectId,
+      });
+    } catch (balanceErr) {
+      console.error("Balance update failed for new commission:", balanceErr.message);
+    }
+
     res.json({ success: true, commission });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -49,11 +65,28 @@ router.post("/:projectId", auth, async (req, res) => {
 // DELETE /commissions/:id
 router.delete("/:id", auth, async (req, res) => {
   try {
-    await Commission.findOneAndDelete({ _id: req.params.id });
+    const commission = await Commission.findOneAndDelete({ _id: req.params.id });
+
+    // Refund the balance for whatever was deducted when this commission was added.
+    if (commission) {
+      try {
+        await adjustBalance({
+          userId: req.userId,
+          amount: Math.abs(Number(commission.amount)),
+          type: "refund",
+          description: `Refund: Commission (${commission.label})`,
+          date: new Date(),
+          project: commission.project,
+        });
+      } catch (balanceErr) {
+        console.error("Balance update failed for deleted commission:", balanceErr.message);
+      }
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-module.exports = router;
+module.exports = router;  
