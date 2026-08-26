@@ -13,7 +13,7 @@ const BalanceSchema = new mongoose.Schema(
     date: {
       type: Date,
       default: Date.now,
-      required: true,a
+      required: true,
     },
     user: {
       type: mongoose.Schema.Types.ObjectId,

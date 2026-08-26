@@ -15,7 +15,7 @@ const uploadRoutes = require("./routes/upload.routes");
 const exportRoutes = require("./routes/export.routes");
 const generalExpenseRoutes = require("./routes/generalExpenses.routes");
 const analysisRoutes = require("./routes/analysis.routes");
-const balanceRoutes = require("./routes/balance.routes");
+const balanceRoutes = require("./routes/Balance.routes");
 const app = express();
 const commissionRoutes = require('./routes/commisions');   // file name as it is
 
