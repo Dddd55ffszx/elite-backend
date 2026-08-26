@@ -15,7 +15,6 @@ const uploadRoutes = require("./routes/upload.routes");
 const exportRoutes = require("./routes/export.routes");
 const generalExpenseRoutes = require("./routes/generalExpenses.routes");
 const analysisRoutes = require("./routes/analysis.routes");
-const balanceRoutes = require("./routes/Balance.routes");
 const app = express();
 const commissionRoutes = require('./routes/commisions');   // file name as it is
 
@@ -73,7 +72,6 @@ app.use("/api/uploads", uploadRoutes);
 app.use("/api/export", exportRoutes);
 app.use("/api/general-expenses", generalExpenseRoutes);
 app.use("/api/analysis", analysisRoutes);
-app.use("/api/balance", balanceRoutes);
 app.use('/api/commissions', commissionRoutes);
 
 // ================= 404 HANDLER =================
