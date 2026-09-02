@@ -1,12 +1,21 @@
 const GeneralExpense = require("../models/GeneralExpense");
-const { adjustBalance } = require("../utils/balanceHelper");
 
-// ================= GET GENERAL EXPENSES =================
+const {
+  adjustBalance,
+  deleteBalanceHistoryForGeneralExpense,
+} = require("../utils/balanceHelper");
+
+// ============================================================
+// GET GENERAL EXPENSES
+// ============================================================
+
 exports.getGeneralExpenses = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
-    let query = { user: req.userId };
+    let query = {
+      user: req.userId,
+    };
 
     if (startDate || endDate) {
       query.expenseDate = {};
@@ -38,38 +47,61 @@ exports.getGeneralExpenses = async (req, res) => {
   }
 };
 
-// ================= ADD GENERAL EXPENSE =================
+// ============================================================
+// ADD GENERAL EXPENSE
+// ============================================================
+
 exports.addGeneralExpense = async (req, res) => {
   try {
-    const { reason, amount, expenseDate } = req.body;
+    const {
+      reason,
+      amount,
+      expenseDate,
+    } = req.body;
 
-    if (!reason || !amount || amount <= 0) {
+    const numericAmount = Number(amount);
+
+    if (
+      !reason ||
+      Number.isNaN(numericAmount) ||
+      numericAmount <= 0
+    ) {
       return res.status(400).json({
         success: false,
         message: "Valid reason and amount required",
       });
     }
 
-    const parsedDate = expenseDate ? new Date(expenseDate) : new Date();
+    const parsedDate = expenseDate
+      ? new Date(expenseDate)
+      : new Date();
+
+    if (isNaN(parsedDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid expense date",
+      });
+    }
 
     const generalExpense = await GeneralExpense.create({
       reason,
-      amount,
+      amount: numericAmount,
       expenseDate: parsedDate,
       user: req.userId,
     });
 
-    // General expenses come out of the shared balance too, same as
-    // project expenses. Store the linkage on `expense` so a later
-    // delete can find and reverse this exact entry.
+    // Deduct from shared balance.
+    //
+    // IMPORTANT:
+    // Store generalExpense ID in BalanceHistory.
     try {
       await adjustBalance({
         userId: req.userId,
-        amount: -Math.abs(Number(amount)),
-        type: "expense",
+        amount: -numericAmount,
+        type: "generalExpense",
         description: reason,
         date: parsedDate,
-        expense: generalExpense._id,
+        generalExpense: generalExpense._id,
       });
     } catch (balanceErr) {
       console.error(
@@ -93,13 +125,23 @@ exports.addGeneralExpense = async (req, res) => {
   }
 };
 
-// ================= DELETE GENERAL EXPENSE =================
+// ============================================================
+// DELETE GENERAL EXPENSE
+//
+// Delete actual record
+// + delete balance history
+// + restore balance
+// ============================================================
+
 exports.deleteGeneralExpense = async (req, res) => {
   try {
-    const { id } = req.params;
+    const {
+      id,
+    } = req.params;
 
     const generalExpense = await GeneralExpense.findOne({
       _id: id,
+      user: req.userId,
     });
 
     if (!generalExpense) {
@@ -109,24 +151,28 @@ exports.deleteGeneralExpense = async (req, res) => {
       });
     }
 
-    await GeneralExpense.findByIdAndDelete(id);
-
-    // Refund whatever this expense deducted from the shared balance.
+    // Restore balance and remove history.
     try {
-      await adjustBalance({
-        userId: req.userId,
-        amount: Math.abs(Number(generalExpense.amount)),
-        type: "refund",
-        description: `Refund: ${generalExpense.reason}`,
-        date: new Date(),
-        expense: generalExpense._id,
-      });
+      await deleteBalanceHistoryForGeneralExpense(
+        generalExpense._id
+      );
     } catch (balanceErr) {
       console.error(
         "Balance update failed for deleted general expense:",
         balanceErr.message
       );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "General expense could not be deleted because balance update failed",
+      });
     }
+
+    // Delete actual general expense.
+    await GeneralExpense.findByIdAndDelete(
+      generalExpense._id
+    );
 
     res.json({
       success: true,

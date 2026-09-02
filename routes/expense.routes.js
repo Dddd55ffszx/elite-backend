@@ -1,49 +1,77 @@
 const express = require("express");
 const router = express.Router();
-const auth = require("../middleware/auth");
-const Expense = require("../models/Expense");
-const { adjustBalance } = require("../utils/balanceHelper");
 
-// ✅ Get expenses by project
+const auth = require("../middleware/auth");
+
+const Expense = require("../models/Expense");
+
+const {
+  adjustBalance,
+  deleteBalanceHistoryForExpense,
+} = require("../utils/balanceHelper");
+
+// ============================================================
+// GET EXPENSES BY PROJECT
+// ============================================================
+
 router.get("/:projectId", auth, async (req, res) => {
   try {
     const expenses = await Expense.find({
       project: req.params.projectId,
       user: req.userId,
-    }).sort({ createdAt: -1 });
+    }).sort({
+      createdAt: -1,
+    });
 
     res.json(expenses);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(500).json({
+      message: err.message,
+    });
   }
 });
+
+// ============================================================
+// ADD EXPENSE
+// ============================================================
+
 router.post("/:projectId", auth, async (req, res) => {
   try {
-    const { reason, amount, date } = req.body;  // 👈 include date
+    const { reason, amount, date } = req.body;
 
-    if (!reason || !amount) {
-      return res.status(400).json({ message: "Reason and amount required" });
+    if (!reason || amount === undefined || amount === null || amount === "") {
+      return res.status(400).json({
+        message: "Reason and amount required",
+      });
+    }
+
+    const numericAmount = Number(amount);
+
+    if (Number.isNaN(numericAmount) || numericAmount <= 0) {
+      return res.status(400).json({
+        message: "Amount must be a positive number",
+      });
     }
 
     const expenseData = {
       project: req.params.projectId,
       reason,
-      amount,
+      amount: numericAmount,
       user: req.userId,
     };
 
-    // Only add date if it was provided and is valid
     if (date && !isNaN(new Date(date).getTime())) {
       expenseData.date = new Date(date);
     }
 
+    // Create actual expense first.
     const expense = await Expense.create(expenseData);
 
-    // Every project expense automatically comes out of the balance.
+    // Deduct from shared balance and link history to expense.
     try {
       await adjustBalance({
         userId: req.userId,
-        amount: -Math.abs(Number(amount)),
+        amount: -numericAmount,
         type: "expense",
         description: reason,
         date: expenseData.date || new Date(),
@@ -51,43 +79,71 @@ router.post("/:projectId", auth, async (req, res) => {
         expense: expense._id,
       });
     } catch (balanceErr) {
-      console.error("Balance update failed for new expense:", balanceErr.message);
+      console.error(
+        "Balance update failed for new expense:",
+        balanceErr.message
+      );
     }
 
     res.json(expense);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(500).json({
+      message: err.message,
+    });
   }
 });
 
-// ✅ Delete expense
+// ============================================================
+// DELETE EXPENSE
+//
+// Deletes:
+// 1. Actual expense
+// 2. Its balance history
+// 3. Restores the balance
+//
+// NO REFUND HISTORY IS CREATED.
+// ============================================================
+
 router.delete("/:id", auth, async (req, res) => {
   try {
-    const expense = await Expense.findOneAndDelete({
+    const expense = await Expense.findOne({
       _id: req.params.id,
       user: req.userId,
     });
 
-    // Refund the balance for whatever was deducted when this expense was added.
-    if (expense) {
-      try {
-        await adjustBalance({
-          userId: req.userId,
-          amount: Math.abs(Number(expense.amount)),
-          type: "refund",
-          description: `Refund: ${expense.reason}`,
-          date: new Date(),
-          project: expense.project,
-          expense: expense._id,
-        });
-      } catch (balanceErr) {
-        console.error("Balance update failed for deleted expense:", balanceErr.message);
-      }
+    if (!expense) {
+      return res.status(404).json({
+        message: "Expense not found",
+      });
     }
 
-    res.json({ success: true });
+    // First remove the balance history and restore the balance.
+    try {
+      await deleteBalanceHistoryForExpense(expense._id);
+    } catch (balanceErr) {
+      console.error(
+        "Balance update failed for deleted expense:",
+        balanceErr.message
+      );
+
+      return res.status(500).json({
+        message: "Expense could not be deleted because balance update failed",
+      });
+    }
+
+    // Then delete actual expense.
+    await Expense.findByIdAndDelete(expense._id);
+
+    res.json({
+      success: true,
+      message: "Expense deleted successfully",
+    });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("Delete expense error:", err);
+
+    res.status(500).json({
+      message: err.message,
+    });
   }
 });
 
