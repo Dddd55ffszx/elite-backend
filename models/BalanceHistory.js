@@ -10,7 +10,16 @@ const BalanceHistorySchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ["deposit", "expense", "commission", "generalExpense"],
+      enum: [
+        "deposit",
+        "expense",
+        "commission",
+        "generalExpense",
+
+        // Legacy records created by the old system.
+        // New deletions will NOT create refund records.
+        "refund",
+      ],
       required: true,
     },
 
@@ -26,9 +35,9 @@ const BalanceHistorySchema = new mongoose.Schema(
       required: true,
     },
 
-    // Balance immediately after this transaction happened.
-    // This is historical and will not be changed when another
-    // transaction is deleted.
+    // Historical balance at the time this transaction happened.
+    // We intentionally DO NOT change this when another transaction
+    // is deleted.
     balanceAfter: {
       type: Number,
       required: true,

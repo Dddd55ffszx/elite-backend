@@ -13,7 +13,7 @@ exports.getGeneralExpenses = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
-    let query = {
+    const query = {
       user: req.userId,
     };
 
@@ -29,16 +29,18 @@ exports.getGeneralExpenses = async (req, res) => {
       }
     }
 
-    const expenses = await GeneralExpense.find(query).sort({
-      expenseDate: -1,
-    });
+    const expenses = await GeneralExpense.find(query)
+      .sort({ expenseDate: -1 });
 
     res.json({
       success: true,
       expenses,
     });
   } catch (error) {
-    console.error("Get general expenses error:", error);
+    console.error(
+      "Get general expenses error:",
+      error
+    );
 
     res.status(500).json({
       success: false,
@@ -83,40 +85,49 @@ exports.addGeneralExpense = async (req, res) => {
       });
     }
 
-    const generalExpense = await GeneralExpense.create({
-      reason,
-      amount: numericAmount,
-      expenseDate: parsedDate,
-      user: req.userId,
-    });
+    const generalExpense =
+      await GeneralExpense.create({
+        reason,
+        amount: numericAmount,
+        expenseDate: parsedDate,
+        user: req.userId,
+      });
 
-    // Deduct from shared balance.
-    //
-    // IMPORTANT:
-    // Store generalExpense ID in BalanceHistory.
     try {
       await adjustBalance({
         userId: req.userId,
+
         amount: -numericAmount,
+
         type: "generalExpense",
+
         description: reason,
+
         date: parsedDate,
-        generalExpense: generalExpense._id,
+
+        generalExpense:
+          generalExpense._id,
       });
     } catch (balanceErr) {
-      console.error(
-        "Balance update failed for new general expense:",
-        balanceErr.message
+      // Don't leave an orphan general expense.
+      await GeneralExpense.findByIdAndDelete(
+        generalExpense._id
       );
+
+      throw balanceErr;
     }
 
     res.json({
       success: true,
-      message: "General expense added successfully",
+      message:
+        "General expense added successfully",
       generalExpense,
     });
   } catch (error) {
-    console.error("Add general expense error:", error);
+    console.error(
+      "Add general expense error:",
+      error
+    );
 
     res.status(500).json({
       success: false,
@@ -127,22 +138,17 @@ exports.addGeneralExpense = async (req, res) => {
 
 // ============================================================
 // DELETE GENERAL EXPENSE
-//
-// Delete actual record
-// + delete balance history
-// + restore balance
 // ============================================================
 
 exports.deleteGeneralExpense = async (req, res) => {
   try {
-    const {
-      id,
-    } = req.params;
+    const { id } = req.params;
 
-    const generalExpense = await GeneralExpense.findOne({
-      _id: id,
-      user: req.userId,
-    });
+    const generalExpense =
+      await GeneralExpense.findOne({
+        _id: id,
+        user: req.userId,
+      });
 
     if (!generalExpense) {
       return res.status(404).json({
@@ -151,35 +157,26 @@ exports.deleteGeneralExpense = async (req, res) => {
       });
     }
 
-    // Restore balance and remove history.
-    try {
-      await deleteBalanceHistoryForGeneralExpense(
-        generalExpense._id
-      );
-    } catch (balanceErr) {
-      console.error(
-        "Balance update failed for deleted general expense:",
-        balanceErr.message
-      );
+    // Restore balance + remove history.
+    await deleteBalanceHistoryForGeneralExpense(
+      generalExpense._id
+    );
 
-      return res.status(500).json({
-        success: false,
-        message:
-          "General expense could not be deleted because balance update failed",
-      });
-    }
-
-    // Delete actual general expense.
+    // Delete actual record.
     await GeneralExpense.findByIdAndDelete(
       generalExpense._id
     );
 
     res.json({
       success: true,
-      message: "General expense deleted successfully",
+      message:
+        "General expense deleted successfully",
     });
   } catch (error) {
-    console.error("Delete general expense error:", error);
+    console.error(
+      "Delete general expense error:",
+      error
+    );
 
     res.status(500).json({
       success: false,

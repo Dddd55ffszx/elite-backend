@@ -25,7 +25,7 @@ async function getOrCreateBalance() {
 }
 
 // ============================================================
-// ADD / SUBTRACT FROM BALANCE + CREATE HISTORY
+// ADD / SUBTRACT BALANCE + CREATE HISTORY
 // ============================================================
 
 async function adjustBalance({
@@ -41,7 +41,13 @@ async function adjustBalance({
 }) {
   const balance = await getOrCreateBalance();
 
-  balance.currentBalance += Number(amount);
+  const numericAmount = Number(amount);
+
+  if (Number.isNaN(numericAmount)) {
+    throw new Error("Invalid balance amount");
+  }
+
+  balance.currentBalance += numericAmount;
 
   await balance.save();
 
@@ -49,16 +55,13 @@ async function adjustBalance({
     user: userId,
     type,
     description,
-    amount: Number(amount),
+    amount: numericAmount,
     balanceAfter: balance.currentBalance,
     date: date || new Date(),
 
     project: project || null,
-
     expense: expense || null,
-
     commission: commission || null,
-
     generalExpense: generalExpense || null,
   });
 
@@ -69,17 +72,16 @@ async function adjustBalance({
 }
 
 // ============================================================
-// DELETE BALANCE HISTORY + REVERSE ITS EFFECT
+// DELETE BALANCE HISTORY ENTRY
 //
-// This is used when something is deleted from the Balance page.
+// This is used when deleting directly from Balance History.
 //
-// Example:
-// Balance = 300
-// History = Expense -200
+// It:
+// 1. Reverses the transaction
+// 2. Deletes the connected actual record
+// 3. Deletes the history entry
 //
-// Delete history
-// Balance = 500
-// Expense itself is also deleted.
+// NO refund history is created.
 // ============================================================
 
 async function deleteBalanceHistoryEntry(historyId) {
@@ -93,37 +95,72 @@ async function deleteBalanceHistoryEntry(historyId) {
 
   const balance = await getOrCreateBalance();
 
-  // Reverse the transaction.
+  // ==========================================================
+  // REVERSE TRANSACTION
+  // ==========================================================
+
+  // Example:
+  // expense = -200
+  // balance -= (-200)
+  // balance += 200
   //
-  // If history.amount = -200
-  // adding -(-200) = +200
-  //
-  // If history.amount = +500
-  // adding -(+500) = -500
+  // deposit = +500
+  // balance -= 500
+  // balance -= 500
+
   balance.currentBalance -= Number(history.amount);
 
   await balance.save();
 
   // ==========================================================
-  // DELETE THE ACTUAL RECORD CONNECTED TO THIS HISTORY
+  // DELETE CONNECTED ACTUAL RECORD
   // ==========================================================
 
-  // Project expense
-  if (history.expense) {
-    await Expense.findByIdAndDelete(history.expense);
-  }
+  // ----------------------------------------------------------
+  // NEW COMMISSION RECORD
+  // ----------------------------------------------------------
 
-  // Commission
   if (history.commission) {
     await Commission.findByIdAndDelete(history.commission);
   }
 
-  // General expense
+  // ----------------------------------------------------------
+  // NEW GENERAL EXPENSE RECORD
+  // ----------------------------------------------------------
+
   if (history.generalExpense) {
     await GeneralExpense.findByIdAndDelete(history.generalExpense);
   }
 
-  // Finally delete the history itself.
+  // ----------------------------------------------------------
+  // PROJECT EXPENSE
+  // ----------------------------------------------------------
+
+  if (history.expense) {
+    await Expense.findByIdAndDelete(history.expense);
+  }
+
+  // ----------------------------------------------------------
+  // LEGACY GENERAL EXPENSE
+  //
+  // Old code stored GeneralExpense._id inside "expense".
+  //
+  // We only use this fallback when there is no project.
+  // ----------------------------------------------------------
+
+  if (
+    history.expense &&
+    !history.project &&
+    !history.commission &&
+    !history.generalExpense
+  ) {
+    await GeneralExpense.findByIdAndDelete(history.expense);
+  }
+
+  // ==========================================================
+  // DELETE HISTORY
+  // ==========================================================
+
   await BalanceHistory.findByIdAndDelete(history._id);
 
   return {
@@ -133,9 +170,9 @@ async function deleteBalanceHistoryEntry(historyId) {
 }
 
 // ============================================================
-// DELETE HISTORY CONNECTED TO AN EXPENSE
+// DELETE HISTORY CONNECTED TO PROJECT EXPENSE
 //
-// Used when deleting an Expense from its own page.
+// Called when deleting an Expense from the project page.
 // ============================================================
 
 async function deleteBalanceHistoryForExpense(expenseId) {
@@ -149,18 +186,20 @@ async function deleteBalanceHistoryForExpense(expenseId) {
 
   const balance = await getOrCreateBalance();
 
-  // Reverse the original deduction.
+  // Reverse original deduction.
   balance.currentBalance -= Number(history.amount);
 
   await balance.save();
 
+  // Delete history only.
+  // The Expense itself is deleted by the route/controller.
   await BalanceHistory.findByIdAndDelete(history._id);
 
   return balance;
 }
 
 // ============================================================
-// DELETE HISTORY CONNECTED TO A COMMISSION
+// DELETE HISTORY CONNECTED TO COMMISSION
 // ============================================================
 
 async function deleteBalanceHistoryForCommission(commissionId) {
@@ -174,7 +213,6 @@ async function deleteBalanceHistoryForCommission(commissionId) {
 
   const balance = await getOrCreateBalance();
 
-  // Reverse original commission deduction.
   balance.currentBalance -= Number(history.amount);
 
   await balance.save();
@@ -185,7 +223,7 @@ async function deleteBalanceHistoryForCommission(commissionId) {
 }
 
 // ============================================================
-// DELETE HISTORY CONNECTED TO A GENERAL EXPENSE
+// DELETE HISTORY CONNECTED TO GENERAL EXPENSE
 // ============================================================
 
 async function deleteBalanceHistoryForGeneralExpense(generalExpenseId) {
@@ -199,7 +237,6 @@ async function deleteBalanceHistoryForGeneralExpense(generalExpenseId) {
 
   const balance = await getOrCreateBalance();
 
-  // Reverse original general expense deduction.
   balance.currentBalance -= Number(history.amount);
 
   await balance.save();

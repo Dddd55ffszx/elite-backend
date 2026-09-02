@@ -11,16 +11,14 @@ const {
 } = require("../utils/balanceHelper");
 
 // ============================================================
-// GET COMMISSIONS BY PROJECT
+// GET COMMISSIONS
 // ============================================================
 
 router.get("/:projectId", auth, async (req, res) => {
   try {
     const commissions = await Commission.find({
       project: req.params.projectId,
-    }).sort({
-      date: -1,
-    });
+    }).sort({ date: -1 });
 
     res.json({
       success: true,
@@ -83,32 +81,38 @@ router.post("/:projectId", auth, async (req, res) => {
       date: parsedDate,
       label,
       user: req.userId,
+      apartment: apartmentId || null,
     };
 
-    if (apartmentId) {
-      commissionData.apartment = apartmentId;
-    }
+    const commission = await Commission.create(
+      commissionData
+    );
 
-    // Create commission first.
-    const commission = await Commission.create(commissionData);
-
-    // Deduct from balance.
-    // IMPORTANT: commission ID is stored in BalanceHistory.
     try {
       await adjustBalance({
         userId: req.userId,
+
+        // Commission is money leaving the company.
         amount: -numericAmount,
+
         type: "commission",
+
         description: `Commission (${label})`,
+
         date: parsedDate,
+
         project: req.params.projectId,
+
+        // VERY IMPORTANT
         commission: commission._id,
       });
     } catch (balanceErr) {
-      console.error(
-        "Balance update failed for new commission:",
-        balanceErr.message
+      // Don't leave commission without balance history.
+      await Commission.findByIdAndDelete(
+        commission._id
       );
+
+      throw balanceErr;
     }
 
     res.json({
@@ -126,11 +130,6 @@ router.post("/:projectId", auth, async (req, res) => {
 
 // ============================================================
 // DELETE COMMISSION
-//
-// Deletes commission + balance history
-// and restores the balance.
-//
-// NO REFUND HISTORY.
 // ============================================================
 
 router.delete("/:id", auth, async (req, res) => {
@@ -147,26 +146,17 @@ router.delete("/:id", auth, async (req, res) => {
     }
 
     // Restore balance and remove history.
-    try {
-      await deleteBalanceHistoryForCommission(commission._id);
-    } catch (balanceErr) {
-      console.error(
-        "Balance update failed for deleted commission:",
-        balanceErr.message
-      );
-
-      return res.status(500).json({
-        message:
-          "Commission could not be deleted because balance update failed",
-      });
-    }
+    await deleteBalanceHistoryForCommission(
+      commission._id
+    );
 
     // Delete actual commission.
-    await Commission.findByIdAndDelete(commission._id);
+    await Commission.findByIdAndDelete(
+      commission._id
+    );
 
     res.json({
       success: true,
-      message: "Commission deleted successfully",
     });
   } catch (err) {
     console.error("Delete commission error:", err);

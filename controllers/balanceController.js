@@ -69,6 +69,8 @@ exports.addBalance = async (req, res) => {
       history: result.history,
     });
   } catch (err) {
+    console.error("Add balance error:", err);
+
     res.status(500).json({
       message: err.message,
     });
@@ -90,10 +92,15 @@ exports.getHistory = async (req, res) => {
       .populate("user", "name email")
       .populate("expense", "reason amount date")
       .populate("commission", "amount label date")
-      .populate("generalExpense", "reason amount expenseDate");
+      .populate(
+        "generalExpense",
+        "reason amount expenseDate"
+      );
 
     res.json(history);
   } catch (err) {
+    console.error("Get balance history error:", err);
+
     res.status(500).json({
       message: err.message,
     });
@@ -102,28 +109,13 @@ exports.getHistory = async (req, res) => {
 
 // ============================================================
 // DELETE ANY BALANCE HISTORY ENTRY
-//
-// Deposit:
-//   Balance 500
-//   Delete +500
-//   Balance 0
-//
-// Expense:
-//   Balance 300
-//   Delete -200
-//   Balance 500
-//   Actual expense is also deleted.
-//
-// Commission:
-//   Same behavior.
-//
-// General expense:
-//   Same behavior.
 // ============================================================
 
 exports.deleteHistoryEntry = async (req, res) => {
   try {
-    const result = await deleteBalanceHistoryEntry(req.params.id);
+    const result = await deleteBalanceHistoryEntry(
+      req.params.id
+    );
 
     res.json({
       success: true,

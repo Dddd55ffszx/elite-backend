@@ -2,7 +2,6 @@ const express = require("express");
 const router = express.Router();
 
 const auth = require("../middleware/auth");
-
 const Expense = require("../models/Expense");
 
 const {
@@ -19,9 +18,7 @@ router.get("/:projectId", auth, async (req, res) => {
     const expenses = await Expense.find({
       project: req.params.projectId,
       user: req.userId,
-    }).sort({
-      createdAt: -1,
-    });
+    }).sort({ createdAt: -1 });
 
     res.json(expenses);
   } catch (err) {
@@ -39,7 +36,7 @@ router.post("/:projectId", auth, async (req, res) => {
   try {
     const { reason, amount, date } = req.body;
 
-    if (!reason || amount === undefined || amount === null || amount === "") {
+    if (!reason || amount === undefined || amount === null) {
       return res.status(400).json({
         message: "Reason and amount required",
       });
@@ -49,7 +46,7 @@ router.post("/:projectId", auth, async (req, res) => {
 
     if (Number.isNaN(numericAmount) || numericAmount <= 0) {
       return res.status(400).json({
-        message: "Amount must be a positive number",
+        message: "Amount must be greater than 0",
       });
     }
 
@@ -67,8 +64,8 @@ router.post("/:projectId", auth, async (req, res) => {
     // Create actual expense first.
     const expense = await Expense.create(expenseData);
 
-    // Deduct from shared balance and link history to expense.
     try {
+      // Deduct from shared balance.
       await adjustBalance({
         userId: req.userId,
         amount: -numericAmount,
@@ -79,14 +76,16 @@ router.post("/:projectId", auth, async (req, res) => {
         expense: expense._id,
       });
     } catch (balanceErr) {
-      console.error(
-        "Balance update failed for new expense:",
-        balanceErr.message
-      );
+      // If balance update fails, don't leave an orphan expense.
+      await Expense.findByIdAndDelete(expense._id);
+
+      throw balanceErr;
     }
 
     res.json(expense);
   } catch (err) {
+    console.error("Add expense error:", err);
+
     res.status(500).json({
       message: err.message,
     });
@@ -95,13 +94,6 @@ router.post("/:projectId", auth, async (req, res) => {
 
 // ============================================================
 // DELETE EXPENSE
-//
-// Deletes:
-// 1. Actual expense
-// 2. Its balance history
-// 3. Restores the balance
-//
-// NO REFUND HISTORY IS CREATED.
 // ============================================================
 
 router.delete("/:id", auth, async (req, res) => {
@@ -117,26 +109,14 @@ router.delete("/:id", auth, async (req, res) => {
       });
     }
 
-    // First remove the balance history and restore the balance.
-    try {
-      await deleteBalanceHistoryForExpense(expense._id);
-    } catch (balanceErr) {
-      console.error(
-        "Balance update failed for deleted expense:",
-        balanceErr.message
-      );
-
-      return res.status(500).json({
-        message: "Expense could not be deleted because balance update failed",
-      });
-    }
+    // First restore balance and delete its history.
+    await deleteBalanceHistoryForExpense(expense._id);
 
     // Then delete actual expense.
     await Expense.findByIdAndDelete(expense._id);
 
     res.json({
       success: true,
-      message: "Expense deleted successfully",
     });
   } catch (err) {
     console.error("Delete expense error:", err);
