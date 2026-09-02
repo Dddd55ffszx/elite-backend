@@ -246,6 +246,42 @@ async function deleteBalanceHistoryForGeneralExpense(generalExpenseId) {
   return balance;
 }
 
+// ============================================================
+// RECALCULATE BALANCE FROM HISTORY
+//
+// Recomputes currentBalance as the sum of every BalanceHistory
+// entry's amount, and saves it. Use this to repair drift caused
+// by history entries that were inserted outside the normal
+// add/delete flow (e.g. a direct DB import), since those never
+// touched the Balance document.
+// ============================================================
+
+async function recalculateBalance() {
+  const balance = await getOrCreateBalance();
+
+  const [result] = await BalanceHistory.aggregate([
+    {
+      $group: {
+        _id: null,
+        total: { $sum: "$amount" },
+      },
+    },
+  ]);
+
+  const trueTotal = result ? result.total : 0;
+
+  const previousBalance = balance.currentBalance;
+
+  balance.currentBalance = trueTotal;
+
+  await balance.save();
+
+  return {
+    previousBalance,
+    newBalance: balance.currentBalance,
+  };
+}
+
 module.exports = {
   getOrCreateBalance,
   adjustBalance,
@@ -255,4 +291,6 @@ module.exports = {
   deleteBalanceHistoryForExpense,
   deleteBalanceHistoryForCommission,
   deleteBalanceHistoryForGeneralExpense,
+
+  recalculateBalance,
 };

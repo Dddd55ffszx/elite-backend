@@ -6,11 +6,13 @@ const {
   addBalance,
   getHistory,
   deleteHistoryEntry,
+  recalculateBalance,
 } = require("../controllers/balanceController");
 
 router.get("/", auth, getBalance);
 router.post("/", auth, addBalance);
 router.get("/history", auth, getHistory);
 router.delete("/history/:id", auth, deleteHistoryEntry);
+router.post("/recalculate", auth, recalculateBalance);
 
 module.exports = router;

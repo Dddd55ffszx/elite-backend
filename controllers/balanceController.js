@@ -4,6 +4,7 @@ const {
   getOrCreateBalance,
   adjustBalance,
   deleteBalanceHistoryEntry,
+  recalculateBalance,
 } = require("../utils/balanceHelper");
 
 // ============================================================
@@ -125,6 +126,33 @@ exports.deleteHistoryEntry = async (req, res) => {
     console.error("Delete balance history error:", err);
 
     res.status(err.statusCode || 500).json({
+      message: err.message,
+    });
+  }
+};
+
+// ============================================================
+// RECALCULATE BALANCE FROM HISTORY
+//
+// Fixes drift between Balance.currentBalance and the actual
+// sum of BalanceHistory entries (e.g. after a direct DB import
+// that bypassed adjustBalance). Safe to call any time — it just
+// recomputes the true total and saves it.
+// ============================================================
+
+exports.recalculateBalance = async (req, res) => {
+  try {
+    const result = await recalculateBalance();
+
+    res.json({
+      success: true,
+      previousBalance: result.previousBalance,
+      balance: result.newBalance,
+    });
+  } catch (err) {
+    console.error("Recalculate balance error:", err);
+
+    res.status(500).json({
       message: err.message,
     });
   }
