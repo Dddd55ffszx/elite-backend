@@ -4,6 +4,7 @@ const {
   adjustBalance,
   deleteBalanceHistoryForGeneralExpense,
 } = require("../utils/balanceHelper");
+const { logActivity } = require("../utils/activityLogger");
 
 // ============================================================
 // GET GENERAL EXPENSES
@@ -117,6 +118,14 @@ exports.addGeneralExpense = async (req, res) => {
       throw balanceErr;
     }
 
+    logActivity({
+      userId: req.userId,
+      action: "create",
+      entityType: "GeneralExpense",
+      entityId: generalExpense._id,
+      description: `Added general expense "${reason}" of ${numericAmount} EGP`,
+    });
+
     res.json({
       success: true,
       message:
@@ -166,6 +175,14 @@ exports.deleteGeneralExpense = async (req, res) => {
     await GeneralExpense.findByIdAndDelete(
       generalExpense._id
     );
+
+    logActivity({
+      userId: req.userId,
+      action: "delete",
+      entityType: "GeneralExpense",
+      entityId: generalExpense._id,
+      description: `Deleted general expense "${generalExpense.reason}" of ${generalExpense.amount} EGP`,
+    });
 
     res.json({
       success: true,

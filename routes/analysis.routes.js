@@ -321,6 +321,266 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
+// ===== ANALYSIS CARD DRILL-DOWN DETAILS =====
+// Powers the Analysis page: clicking a summary card opens a page
+// with either the itemised records behind it (newest first) or,
+// for computed metrics, the calculation that produced the number.
+router.get("/details/:type", auth, async (req, res) => {
+  try {
+    const { type } = req.params;
+    const { projectId, startYear, endYear, startDate, endDate } = req.query;
+
+    let filterStart = null;
+    let filterEnd = null;
+    if (startDate) filterStart = new Date(startDate);
+    if (endDate) filterEnd = new Date(endDate);
+    if (startYear && !filterStart) filterStart = new Date(`${startYear}-01-01`);
+    if (endYear && !filterEnd) filterEnd = new Date(`${endYear}-12-31`);
+    const hasFilter = !!(filterStart || filterEnd);
+
+    const isInFilter = (date) => {
+      if (!date) return false;
+      const d = new Date(date);
+      if (isNaN(d)) return false;
+      if (filterStart && d < filterStart) return false;
+      if (filterEnd && d > filterEnd) return false;
+      return true;
+    };
+
+    let projectFilter = {};
+    if (projectId && projectId !== "all" && mongoose.Types.ObjectId.isValid(projectId)) {
+      projectFilter._id = new mongoose.Types.ObjectId(projectId);
+    }
+
+    const projects = await Project.find(projectFilter);
+    const projectIds = projects.map((p) => p._id);
+    const projectMap = {};
+    projects.forEach((p) => { projectMap[p._id.toString()] = p; });
+
+    const listTypes = ["actual-sales", "realised-sales", "unpaid-installments", "total-expenses", "commissions"];
+    const formulaTypes = ["realised-profit", "elite-indebtedness", "net-debt"];
+
+    if (!listTypes.includes(type) && !formulaTypes.includes(type)) {
+      return res.status(400).json({ message: "Unknown detail type" });
+    }
+
+    // ================= ITEMISED LIST TYPES =================
+    if (listTypes.includes(type)) {
+      const items = [];
+
+      if (type !== "total-expenses" && type !== "commissions") {
+        const apartments = await Apartment.find({ project: { $in: projectIds } });
+
+        apartments.forEach((apt) => {
+          if (!apt.isSold) return;
+          const project = projectMap[apt.project.toString()];
+
+          (apt.payments || []).forEach((p) => {
+            const amount = Number(p.amount) || 0;
+            const isPaid = p.isPaid === true;
+            const relevantDate = isPaid ? (p.paidDate || p.date) : p.date;
+            if (!relevantDate) return;
+            if (hasFilter && !isInFilter(relevantDate)) return;
+
+            if (type === "realised-sales" && !isPaid) return;
+            if (type === "unpaid-installments" && isPaid) return;
+            // "actual-sales" (paid + unpaid) includes both
+
+            items.push({
+              date: new Date(relevantDate).toISOString(),
+              amount,
+              status: isPaid ? "Paid" : "Unpaid",
+              apartmentNumber: apt.apartmentId,
+              projectName: project?.name || "Unknown",
+              clientName: apt.client?.name || "Unknown",
+              reason: p.reason || (isPaid ? "Payment received" : "Installment due"),
+            });
+          });
+
+          // Plain cash sale with no itemised payment history
+          if (apt.paymentType === "cash" && (apt.payments || []).length === 0 && type !== "unpaid-installments") {
+            const cashDate = apt.soldDate || apt.createdAt;
+            if (!(hasFilter && !isInFilter(cashDate))) {
+              items.push({
+                date: new Date(cashDate).toISOString(),
+                amount: apt.soldPrice || apt.price || 0,
+                status: "Paid",
+                apartmentNumber: apt.apartmentId,
+                projectName: project?.name || "Unknown",
+                clientName: apt.client?.name || "Unknown",
+                reason: "Cash sale",
+              });
+            }
+          }
+        });
+      }
+
+      if (type === "total-expenses") {
+        const projectExpenses = await Expense.find({ project: { $in: projectIds } });
+        projectExpenses.forEach((exp) => {
+          const d = exp.date || exp.createdAt;
+          if (hasFilter && !isInFilter(d)) return;
+          items.push({
+            date: new Date(d).toISOString(),
+            amount: Number(exp.amount) || 0,
+            category: "Project Expense",
+            projectName: projectMap[exp.project?.toString()]?.name || "Unknown",
+            reason: exp.reason,
+          });
+        });
+
+        const generalExpenses = await GeneralExpense.find({});
+        generalExpenses.forEach((ge) => {
+          if (!ge.expenseDate) return;
+          const geDate = new Date(ge.expenseDate);
+          if (hasFilter && !isInFilter(geDate)) return;
+          const matchingProjects = projects.filter((proj) => {
+            const projStart = proj.startDate ? new Date(proj.startDate) : null;
+            const projEnd = proj.endDate ? new Date(proj.endDate) : null;
+            if (projStart && geDate < projStart) return false;
+            if (projEnd && geDate > projEnd) return false;
+            return true;
+          });
+          if (matchingProjects.length === 0) return;
+          items.push({
+            date: geDate.toISOString(),
+            amount: Number(ge.amount) || 0,
+            category: "General Expense",
+            projectName: "—",
+            reason: ge.reason,
+          });
+        });
+      }
+
+      if (type === "total-expenses" || type === "commissions") {
+        const allCommissions = await Commission.find({ project: { $in: projectIds } });
+        allCommissions.forEach((comm) => {
+          const d = comm.date || comm.createdAt;
+          if (!d) return;
+          if (hasFilter && !isInFilter(d)) return;
+          items.push({
+            date: new Date(d).toISOString(),
+            amount: Number(comm.amount) || 0,
+            category: "Commission",
+            projectName: projectMap[comm.project?.toString()]?.name || "Unknown",
+            reason: comm.label === "project" ? "Project commission" : `Apartment ${comm.label}`,
+          });
+        });
+      }
+
+      items.sort((a, b) => new Date(b.date) - new Date(a.date));
+      const total = items.reduce((s, i) => s + (i.amount || 0), 0);
+
+      return res.json({ success: true, type, mode: "list", items, total });
+    }
+
+    // ================= COMPUTED / FORMULA TYPES =================
+    const apartments = await Apartment.find({ project: { $in: projectIds } });
+    const projectExpenses = await Expense.find({ project: { $in: projectIds } });
+    const generalExpenses = await GeneralExpense.find({});
+    const tadaemMichealList = await TadaemMicheal.find({});
+    const allCommissions = await Commission.find({ project: { $in: projectIds } });
+
+    let totalActualSales = 0;
+    let totalUnpaidInstallments = 0;
+
+    apartments.forEach((apt) => {
+      if (!apt.isSold) return;
+      (apt.payments || []).forEach((p) => {
+        const amount = Number(p.amount) || 0;
+        if (p.isPaid === true) {
+          const payDate = p.paidDate || p.date;
+          if (hasFilter && !isInFilter(payDate)) return;
+          totalActualSales += amount;
+        } else {
+          const dueDate = p.date;
+          if (!dueDate) return;
+          if (hasFilter && !isInFilter(dueDate)) return;
+          totalUnpaidInstallments += amount;
+        }
+      });
+      if (apt.paymentType === "cash" && (apt.payments || []).length === 0) {
+        const cashDate = apt.soldDate || apt.createdAt;
+        if (!(hasFilter && !isInFilter(cashDate))) {
+          totalActualSales += apt.soldPrice || apt.price || 0;
+        }
+      }
+    });
+
+    let totalProjectExpenses = 0;
+    projectExpenses.forEach((exp) => {
+      const d = exp.date || exp.createdAt;
+      if (hasFilter && !isInFilter(d)) return;
+      totalProjectExpenses += Number(exp.amount) || 0;
+    });
+
+    let totalGeneralExpenses = 0;
+    generalExpenses.forEach((ge) => {
+      if (!ge.expenseDate) return;
+      const geDate = new Date(ge.expenseDate);
+      if (hasFilter && !isInFilter(geDate)) return;
+      const matchingProjects = projects.filter((proj) => {
+        const projStart = proj.startDate ? new Date(proj.startDate) : null;
+        const projEnd = proj.endDate ? new Date(proj.endDate) : null;
+        if (projStart && geDate < projStart) return false;
+        if (projEnd && geDate > projEnd) return false;
+        return true;
+      });
+      if (matchingProjects.length === 0) return;
+      totalGeneralExpenses += Number(ge.amount) || 0;
+    });
+
+    let totalCommissions = 0;
+    allCommissions.forEach((comm) => {
+      const d = comm.date || comm.createdAt;
+      if (!d) return;
+      if (hasFilter && !isInFilter(d)) return;
+      totalCommissions += Number(comm.amount) || 0;
+    });
+
+    let totalTadaemMicheal = 0;
+    tadaemMichealList.forEach((tm) => {
+      if (!tm.expenseDate) return;
+      const tmDate = new Date(tm.expenseDate);
+      if (hasFilter && !isInFilter(tmDate)) return;
+      totalTadaemMicheal += Number(tm.amount) || 0;
+    });
+
+    const totalExpenses = totalProjectExpenses + totalGeneralExpenses + totalCommissions;
+    const totalActualProfit = totalActualSales - totalExpenses;
+    const totalEliteIndebtedness = totalActualProfit + totalTadaemMicheal;
+    const totalNetDebt = totalEliteIndebtedness + totalUnpaidInstallments;
+
+    let terms = [];
+    let result = {};
+
+    if (type === "realised-profit") {
+      terms = [
+        { label: "Realised Sales", value: totalActualSales, op: "" },
+        { label: "Total Expenses", value: totalExpenses, op: "-" },
+      ];
+      result = { label: "Realised Profit", value: totalActualProfit };
+    } else if (type === "elite-indebtedness") {
+      terms = [
+        { label: "Realised Profit", value: totalActualProfit, op: "" },
+        { label: "Tadaem Micheal", value: totalTadaemMicheal, op: "+" },
+      ];
+      result = { label: "Elite Indebtedness", value: totalEliteIndebtedness };
+    } else if (type === "net-debt") {
+      terms = [
+        { label: "Elite Indebtedness", value: totalEliteIndebtedness, op: "" },
+        { label: "Unpaid Installments", value: totalUnpaidInstallments, op: "+" },
+      ];
+      result = { label: "Net Debt", value: totalNetDebt };
+    }
+
+    return res.json({ success: true, type, mode: "formula", terms, result });
+  } catch (err) {
+    console.error("Analysis details error:", err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // ===== TADAEM MICHEAL CRUD =====
 router.get("/tadaem-micheal", auth, async (req, res) => {
   try {

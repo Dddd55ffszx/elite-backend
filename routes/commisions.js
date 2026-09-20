@@ -5,10 +5,7 @@ const auth = require("../middleware/auth");
 
 const Commission = require("../models/Commission");
 
-const {
-  adjustBalance,
-  deleteBalanceHistoryForCommission,
-} = require("../utils/balanceHelper");
+const { logActivity } = require("../utils/activityLogger");
 
 // ============================================================
 // GET COMMISSIONS
@@ -88,32 +85,16 @@ router.post("/:projectId", auth, async (req, res) => {
       commissionData
     );
 
-    try {
-      await adjustBalance({
-        userId: req.userId,
+    // NOTE: Commissions no longer deduct from the shared balance.
+    // Only Expenses and General Expenses affect the balance now.
 
-        // Commission is money leaving the company.
-        amount: -numericAmount,
-
-        type: "commission",
-
-        description: `Commission (${label})`,
-
-        date: parsedDate,
-
-        project: req.params.projectId,
-
-        // VERY IMPORTANT
-        commission: commission._id,
-      });
-    } catch (balanceErr) {
-      // Don't leave commission without balance history.
-      await Commission.findByIdAndDelete(
-        commission._id
-      );
-
-      throw balanceErr;
-    }
+    logActivity({
+      userId: req.userId,
+      action: "create",
+      entityType: "Commission",
+      entityId: commission._id,
+      description: `Added commission (${label}) of ${numericAmount} EGP`,
+    });
 
     res.json({
       success: true,
@@ -145,15 +126,20 @@ router.delete("/:id", auth, async (req, res) => {
       });
     }
 
-    // Restore balance and remove history.
-    await deleteBalanceHistoryForCommission(
-      commission._id
-    );
-
     // Delete actual commission.
+    // (Commissions no longer touch the shared balance, so there is
+    // no balance history to reverse here.)
     await Commission.findByIdAndDelete(
       commission._id
     );
+
+    logActivity({
+      userId: req.userId,
+      action: "delete",
+      entityType: "Commission",
+      entityId: commission._id,
+      description: `Deleted commission (${commission.label}) of ${commission.amount} EGP`,
+    });
 
     res.json({
       success: true,

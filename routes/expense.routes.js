@@ -8,6 +8,7 @@ const {
   adjustBalance,
   deleteBalanceHistoryForExpense,
 } = require("../utils/balanceHelper");
+const { logActivity } = require("../utils/activityLogger");
 
 // ============================================================
 // GET EXPENSES BY PROJECT
@@ -82,6 +83,14 @@ router.post("/:projectId", auth, async (req, res) => {
       throw balanceErr;
     }
 
+    logActivity({
+      userId: req.userId,
+      action: "create",
+      entityType: "Expense",
+      entityId: expense._id,
+      description: `Added expense "${reason}" of ${numericAmount} EGP`,
+    });
+
     res.json(expense);
   } catch (err) {
     console.error("Add expense error:", err);
@@ -114,6 +123,14 @@ router.delete("/:id", auth, async (req, res) => {
 
     // Then delete actual expense.
     await Expense.findByIdAndDelete(expense._id);
+
+    logActivity({
+      userId: req.userId,
+      action: "delete",
+      entityType: "Expense",
+      entityId: expense._id,
+      description: `Deleted expense "${expense.reason}" of ${expense.amount} EGP`,
+    });
 
     res.json({
       success: true,

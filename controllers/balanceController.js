@@ -6,6 +6,7 @@ const {
   deleteBalanceHistoryEntry,
   recalculateBalance,
 } = require("../utils/balanceHelper");
+const { logActivity } = require("../utils/activityLogger");
 
 // ============================================================
 // GET BALANCE
@@ -65,6 +66,14 @@ exports.addBalance = async (req, res) => {
       date: parsedDate,
     });
 
+    logActivity({
+      userId: req.userId,
+      action: "create",
+      entityType: "Balance",
+      entityId: result.history._id,
+      description: `Added ${numericAmount} EGP to balance ("${description}")`,
+    });
+
     res.json({
       balance: result.balance.currentBalance,
       history: result.history,
@@ -118,6 +127,14 @@ exports.deleteHistoryEntry = async (req, res) => {
       req.params.id
     );
 
+    logActivity({
+      userId: req.userId,
+      action: "delete",
+      entityType: "BalanceHistory",
+      entityId: req.params.id,
+      description: `Deleted balance entry "${result.history.description}" of ${result.history.amount} EGP`,
+    });
+
     res.json({
       success: true,
       balance: result.balance,
@@ -143,6 +160,13 @@ exports.deleteHistoryEntry = async (req, res) => {
 exports.recalculateBalance = async (req, res) => {
   try {
     const result = await recalculateBalance();
+
+    logActivity({
+      userId: req.userId,
+      action: "update",
+      entityType: "Balance",
+      description: `Recalculated balance (${result.previousBalance} → ${result.newBalance} EGP)`,
+    });
 
     res.json({
       success: true,

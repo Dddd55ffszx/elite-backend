@@ -9,6 +9,10 @@ const Project = require("../models/Project");
 const Expense = require("../models/Expense");
 const Apartment = require("../models/Apartment");
 const Commission = require("../models/Commission");
+const {
+  deleteBalanceHistoryForProject,
+} = require("../utils/balanceHelper");
+const { logActivity } = require("../utils/activityLogger");
 // ================= CREATE PROJECT =================
 router.post("/", auth, async (req, res) => {
   try {
@@ -32,6 +36,14 @@ router.post("/", auth, async (req, res) => {
     if (endDate) projectData.endDate = new Date(endDate);
 
     const project = await Project.create(projectData);
+
+    logActivity({
+      userId: req.userId,
+      action: "create",
+      entityType: "Project",
+      entityId: project._id,
+      description: `Created project "${project.name}"`,
+    });
 
     res.status(201).json(project);
   } catch (err) {
@@ -387,6 +399,14 @@ router.put("/:id", auth, async (req, res) => {
       totalExpenses
     };
 
+    logActivity({
+      userId: req.userId,
+      action: "update",
+      entityType: "Project",
+      entityId: project._id,
+      description: `Updated project "${project.name}"`,
+    });
+
     res.json(projectData);
   } catch (err) {
     console.error("Update project error:", err);
@@ -418,9 +438,18 @@ router.delete("/:id", auth, async (req, res) => {
       });
     }
 
+    await deleteBalanceHistoryForProject(req.params.id);
     await Project.findByIdAndDelete(req.params.id);
     await Apartment.deleteMany({ project: req.params.id });
     await Expense.deleteMany({ project: req.params.id });
+
+    logActivity({
+      userId: req.userId,
+      action: "delete",
+      entityType: "Project",
+      entityId: project._id,
+      description: `Deleted project "${project.name}" and its related data`,
+    });
 
     res.json({ success: true, message: "Project and related data deleted successfully" });
   } catch (err) {

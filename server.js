@@ -16,6 +16,7 @@ const exportRoutes = require("./routes/export.routes");
 const generalExpenseRoutes = require("./routes/generalExpenses.routes");
 const analysisRoutes = require("./routes/analysis.routes");
 const balanceRoutes = require("./routes/balance.routes");
+const logsRoutes = require("./routes/logs.routes");
 const app = express();
 const commissionRoutes = require('./routes/commisions');   // file name as it is
 
@@ -75,6 +76,7 @@ app.use("/api/general-expenses", generalExpenseRoutes);
 app.use("/api/analysis", analysisRoutes);
 app.use("/api/balance", balanceRoutes);
 app.use('/api/commissions', commissionRoutes);
+app.use("/api/logs", logsRoutes);
 
 // ================= 404 HANDLER =================
 app.use((req, res) => {

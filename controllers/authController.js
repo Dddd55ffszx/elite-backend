@@ -1,6 +1,7 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { logActivity } = require("../utils/activityLogger");
 
 // Try to load email service, but don't crash if it fails
 let emailService;
@@ -170,6 +171,15 @@ exports.login = async (req, res) => {
 
     // Create token
     const token = generateToken(user._id);
+
+    logActivity({
+      userId: user._id,
+      user,
+      action: "login",
+      entityType: "User",
+      entityId: user._id,
+      description: `${user.name} logged in`,
+    });
 
     // Send response
     res.status(200).json({

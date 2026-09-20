@@ -199,6 +199,35 @@ async function deleteBalanceHistoryForExpense(expenseId) {
 }
 
 // ============================================================
+// DELETE HISTORY CONNECTED TO A PROJECT'S EXPENSES
+// ============================================================
+
+async function deleteBalanceHistoryForProject(projectId) {
+  const histories = await BalanceHistory.find({
+    project: projectId,
+    type: "expense",
+  });
+
+  if (histories.length === 0) {
+    return null;
+  }
+
+  const balance = await getOrCreateBalance();
+  const totalToRestore = histories.reduce(
+    (total, history) => total - Number(history.amount),
+    0
+  );
+
+  balance.currentBalance += totalToRestore;
+  await balance.save();
+  await BalanceHistory.deleteMany({
+    _id: { $in: histories.map((history) => history._id) },
+  });
+
+  return balance;
+}
+
+// ============================================================
 // DELETE HISTORY CONNECTED TO COMMISSION
 // ============================================================
 
@@ -289,6 +318,7 @@ module.exports = {
   deleteBalanceHistoryEntry,
 
   deleteBalanceHistoryForExpense,
+  deleteBalanceHistoryForProject,
   deleteBalanceHistoryForCommission,
   deleteBalanceHistoryForGeneralExpense,
 
