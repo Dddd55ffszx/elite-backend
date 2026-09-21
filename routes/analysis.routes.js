@@ -261,6 +261,17 @@ router.get("/", auth, async (req, res) => {
 
   totalUnits: apartments.length,
 };
+
+    // ROI = actual sales / expenses, expressed as a percentage
+    const totalExpensesForRatios = summary.totalExpenses;
+    summary.totalROI = totalExpensesForRatios
+      ? Number(((summary.totalActualSales / totalExpensesForRatios) * 100).toFixed(2))
+      : 0;
+
+    // Realised Profit %, calculated the same way as ROI (over expenses) but with profit's own numbers
+    summary.profitMarginPercent = totalExpensesForRatios
+      ? Number(((summary.totalActualProfit / totalExpensesForRatios) * 100).toFixed(2))
+      : 0;
     const completedProjectsCount = projects.filter((proj) => {
       const projApts = apartments.filter((a) => a.project.toString() === proj._id.toString());
       return projApts.length > 0 && projApts.every((apt) => apt.isSold);
