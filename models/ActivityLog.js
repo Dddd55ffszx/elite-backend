@@ -28,6 +28,15 @@ const ActivityLogSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       default: null,
     },
+    // Which project this action relates to, when applicable
+    // (e.g. an apartment, expense or commission belongs to a
+    // project). Left null for actions that aren't project-scoped
+    // (logins, general expenses, balance entries).
+    project: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Project",
+      default: null,
+    },
     description: {
       type: String,
       default: "",

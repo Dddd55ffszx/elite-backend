@@ -17,6 +17,7 @@ router.post("/", auth, async (req, res) => {
       action: "create",
       entityType: "Apartment",
       entityId: apartment._id,
+      projectId: apartment.project,
       description: `Added apartment "${apartment.apartmentId || apartment._id}"`,
     });
 
@@ -61,6 +62,7 @@ router.put("/:id", auth, async (req, res) => {
       action: "update",
       entityType: "Apartment",
       entityId: apartment._id,
+      projectId: apartment.project,
       description: `Updated apartment "${apartment.apartmentId || apartment._id}"`,
     });
 
@@ -131,6 +133,7 @@ router.post("/:id/pay", auth, async (req, res) => {
       action: "create",
       entityType: "Payment",
       entityId: apartment._id,
+      projectId: apartment.project,
       description: `Added payment of ${req.body.amount || 0} EGP on apartment "${apartment.apartmentId || apartment._id}"`,
     });
 
@@ -163,6 +166,7 @@ router.post("/:id/pay", auth, async (req, res) => {
       action: "update",
       entityType: "Payment",
       entityId: apartment._id,
+      projectId: apartment.project,
       description: `Marked payment of ${payment.amount || 0} EGP as paid on apartment "${apartment.apartmentId || apartment._id}"`,
     });
 
@@ -197,6 +201,7 @@ router.put("/:id/pay/:paymentId", auth, async (req, res) => {
       action: "update",
       entityType: "Payment",
       entityId: apartment._id,
+      projectId: apartment.project,
       description: `Updated payment on apartment "${apartment.apartmentId || apartment._id}"`,
     });
 
@@ -225,6 +230,7 @@ router.delete("/:id/pay/:paymentId", auth, async (req, res) => {
       action: "delete",
       entityType: "Payment",
       entityId: apartment._id,
+      projectId: apartment.project,
       description: `Deleted a payment on apartment "${apartment.apartmentId || apartment._id}"`,
     });
 
@@ -245,6 +251,7 @@ router.delete("/:id", auth, async (req, res) => {
       action: "delete",
       entityType: "Apartment",
       entityId: apartment._id,
+      projectId: apartment.project,
       description: `Deleted apartment "${apartment.apartmentId || apartment._id}"`,
     });
 

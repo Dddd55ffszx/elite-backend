@@ -88,6 +88,7 @@ router.post("/:projectId", auth, async (req, res) => {
       action: "create",
       entityType: "Expense",
       entityId: expense._id,
+      projectId: expense.project,
       description: `Added expense "${reason}" of ${numericAmount} EGP`,
     });
 
@@ -129,6 +130,7 @@ router.delete("/:id", auth, async (req, res) => {
       action: "delete",
       entityType: "Expense",
       entityId: expense._id,
+      projectId: expense.project,
       description: `Deleted expense "${expense.reason}" of ${expense.amount} EGP`,
     });
 

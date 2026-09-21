@@ -16,7 +16,8 @@ router.get("/", auth, async (req, res) => {
 
     const logs = await ActivityLog.find({})
       .sort({ date: -1, createdAt: -1 })
-      .limit(limit);
+      .limit(limit)
+      .populate("project", "name");
 
     res.json({ success: true, logs });
   } catch (err) {

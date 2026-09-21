@@ -16,6 +16,7 @@ async function logActivity({
   action,
   entityType = "",
   entityId = null,
+  projectId = null, // which project this action relates to, if any
   description = "",
 }) {
   try {
@@ -32,6 +33,7 @@ async function logActivity({
       action,
       entityType,
       entityId,
+      project: projectId || null,
       description,
     });
   } catch (err) {
