@@ -114,9 +114,7 @@ router.get("/", auth, async (req, res) => {
         const actualProfit = actualSales - totalExpenses ;
 
         const estimatedProfitPercent =
-          estimatedSales > 0
-            ? ((estimatedProfit / estimatedSales) * 100).toFixed(2)
-            : 0;
+          totalExpenses > 0 ? ((estimatedProfit / totalExpenses) * 100).toFixed(2) : 0;
 
         const actualProfitPercent =
           totalExpenses > 0 ? ((actualProfit / totalExpenses) * 100).toFixed(2) : 0;
@@ -227,9 +225,7 @@ router.get("/:id", auth, async (req, res) => {
     const actualProfit = actualSales - totalExpenses;
 
     const estimatedProfitPercent =
-      estimatedSales > 0
-        ? ((estimatedProfit / estimatedSales) * 100).toFixed(2)
-        : 0;
+      totalExpenses > 0 ? ((estimatedProfit / totalExpenses) * 100).toFixed(2) : 0;
 
     const actualProfitPercent =
       totalExpenses > 0 ? ((actualProfit / totalExpenses) * 100).toFixed(2) : 0;
