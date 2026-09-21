@@ -203,7 +203,8 @@ router.get("/", auth, async (req, res) => {
         y.actualProfit = y.actualSales - y.totalExpenses;
         y.eliteIndebtedness = y.actualProfit + y.tadaemMicheal;
         y.occupancyRate = y.totalUnits ? (y.soldCount / y.totalUnits) * 100 : 0;
-        y.profitMargin = y.totalExpenses ? (y.actualProfit / y.totalExpenses) * 100 : 0;
+        // Realised Profit % = (Realised Sales - Total Expenses) / Realised Sales
+        y.profitMargin = y.actualSales ? (y.actualProfit / y.actualSales) * 100 : 0;
         return y;
       })
       .filter((y) => {
@@ -262,15 +263,17 @@ router.get("/", auth, async (req, res) => {
   totalUnits: apartments.length,
 };
 
-    // ROI = actual sales / expenses, expressed as a percentage
+    // ROI is the sales-to-expenses ratio.
+    // The card displays the ratio as a number and the percentage separately.
     const totalExpensesForRatios = summary.totalExpenses;
     summary.totalROI = totalExpensesForRatios
-      ? Number(((summary.totalActualSales / totalExpensesForRatios) * 100).toFixed(2))
+      ? Number((summary.totalActualSales / totalExpensesForRatios).toFixed(2))
       : 0;
+    summary.totalROIPercent = Number((summary.totalROI * 100).toFixed(2));
 
-    // Realised Profit %, calculated the same way as ROI (over expenses) but with profit's own numbers
-    summary.profitMarginPercent = totalExpensesForRatios
-      ? Number(((summary.totalActualProfit / totalExpensesForRatios) * 100).toFixed(2))
+    // Realised Profit % = (Realised Sales - Total Expenses) / Realised Sales
+    summary.profitMarginPercent = summary.totalActualSales
+      ? Number(((summary.totalActualProfit / summary.totalActualSales) * 100).toFixed(2))
       : 0;
     const completedProjectsCount = projects.filter((proj) => {
       const projApts = apartments.filter((a) => a.project.toString() === proj._id.toString());
@@ -377,7 +380,7 @@ router.get("/details/:type", auth, async (req, res) => {
     projects.forEach((p) => { projectMap[p._id.toString()] = p; });
 
     const listTypes = ["actual-sales", "realised-sales", "unpaid-installments", "total-expenses", "commissions"];
-    const formulaTypes = ["realised-profit", "elite-indebtedness", "net-debt"];
+    const formulaTypes = ["realised-profit", "roi", "elite-indebtedness", "net-debt"];
 
     if (!listTypes.includes(type) && !formulaTypes.includes(type)) {
       return res.status(400).json({ message: "Unknown detail type" });
@@ -579,6 +582,18 @@ router.get("/details/:type", auth, async (req, res) => {
         { label: "Total Expenses", value: totalExpenses, op: "-" },
       ];
       result = { label: "Realised Profit", value: totalActualProfit };
+    } else if (type === "roi") {
+      // ROI = Actual Sales / Total Expenses
+      const roi = totalExpenses > 0 ? totalActualSales / totalExpenses : 0;
+      terms = [
+        { label: "Actual Sales", value: totalActualSales, op: "" },
+        { label: "Total Expenses", value: totalExpenses, op: "÷" },
+      ];
+      result = {
+        label: "ROI",
+        value: Number(roi.toFixed(2)),
+        percentage: Number((roi * 100).toFixed(2)),
+      };
     } else if (type === "elite-indebtedness") {
       terms = [
         { label: "Realised Profit", value: totalActualProfit, op: "" },
@@ -804,7 +819,8 @@ router.get("/export", auth, async (req, res) => {
         y.totalExpenses = y.projectExpenses + y.generalExpenses + y.commissions;
         y.actualProfit = y.actualSales - y.totalExpenses;
         y.eliteIndebtedness = y.actualProfit + y.tadaemMicheal;
-        y.profitMargin = y.totalExpenses ? (y.actualProfit / y.totalExpenses) * 100 : 0;
+        // Realised Profit % = (Realised Sales - Total Expenses) / Realised Sales
+        y.profitMargin = y.actualSales ? (y.actualProfit / y.actualSales) * 100 : 0;
         y.projectNames = [...new Set(y.projects || [])].join(", ");
         return y;
       })

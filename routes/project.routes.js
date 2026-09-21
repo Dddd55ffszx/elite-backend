@@ -113,11 +113,14 @@ router.get("/", auth, async (req, res) => {
         const estimatedProfit = estimatedSales - totalExpenses ;
         const actualProfit = actualSales - totalExpenses ;
 
+        // Profit percentage is always calculated against the sales it belongs to.
+        // Actual Profit % = (Actual Sales - Total Expenses) / Actual Sales
+        // Realised Profit % = (Realised Sales - Total Expenses) / Realised Sales
         const estimatedProfitPercent =
-          totalExpenses > 0 ? ((estimatedProfit / totalExpenses) * 100).toFixed(2) : 0;
+          estimatedSales > 0 ? ((estimatedProfit / estimatedSales) * 100).toFixed(2) : 0;
 
         const actualProfitPercent =
-          totalExpenses > 0 ? ((actualProfit / totalExpenses) * 100).toFixed(2) : 0;
+          actualSales > 0 ? ((actualProfit / actualSales) * 100).toFixed(2) : 0;
 
         return {
           _id: project._id,
@@ -224,11 +227,14 @@ router.get("/:id", auth, async (req, res) => {
     const estimatedProfit = estimatedSales - totalExpenses ;
     const actualProfit = actualSales - totalExpenses;
 
-    const estimatedProfitPercent =
-      totalExpenses > 0 ? ((estimatedProfit / totalExpenses) * 100).toFixed(2) : 0;
+    // Profit percentage is always calculated against the sales it belongs to.
+        // Actual Profit % = (Actual Sales - Total Expenses) / Actual Sales
+        // Realised Profit % = (Realised Sales - Total Expenses) / Realised Sales
+        const estimatedProfitPercent =
+          estimatedSales > 0 ? ((estimatedProfit / estimatedSales) * 100).toFixed(2) : 0;
 
-    const actualProfitPercent =
-      totalExpenses > 0 ? ((actualProfit / totalExpenses) * 100).toFixed(2) : 0;
+        const actualProfitPercent =
+          actualSales > 0 ? ((actualProfit / actualSales) * 100).toFixed(2) : 0;
 
     const projectData = {
       _id: project._id,
