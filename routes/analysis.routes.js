@@ -13,7 +13,11 @@ const Commission = require("../models/Commission");
 // ===== MAIN ANALYSIS ROUTE =====
 router.get("/", auth, async (req, res) => {
   try {
-    const { projectId, startYear, endYear, startDate, endDate } = req.query;
+    const { projectId, startYear, endYear, startDate, endDate, includeGeneralExpenses, includeCommissions } = req.query;
+
+    // Both default to included (true) unless explicitly turned off.
+    const includeGE = includeGeneralExpenses !== "false";
+    const includeComm = includeCommissions !== "false";
 
     let filterStart = null;
     let filterEnd = null;
@@ -190,8 +194,12 @@ router.get("/", auth, async (req, res) => {
 
     const yearlyData = Object.values(yearlyMap)
       .map((y) => {
-        // commissions are treated as part of totalExpenses
-        y.totalExpenses = y.projectExpenses + y.generalExpenses + y.commissions;
+        // commissions and general expenses are treated as part of totalExpenses,
+        // unless explicitly excluded via the includeGeneralExpenses/includeCommissions filters
+        y.totalExpenses =
+          y.projectExpenses +
+          (includeGE ? y.generalExpenses : 0) +
+          (includeComm ? y.commissions : 0);
         y.actualProfit = y.actualSales - y.totalExpenses;
         y.eliteIndebtedness = y.actualProfit + y.tadaemMicheal;
         y.occupancyRate = y.totalUnits ? (y.soldCount / y.totalUnits) * 100 : 0;
