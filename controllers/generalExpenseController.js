@@ -1,7 +1,6 @@
 const GeneralExpense = require("../models/GeneralExpense");
 
 const {
-  adjustBalance,
   deleteBalanceHistoryForGeneralExpense,
 } = require("../utils/balanceHelper");
 const { logActivity } = require("../utils/activityLogger");
@@ -94,29 +93,8 @@ exports.addGeneralExpense = async (req, res) => {
         user: req.userId,
       });
 
-    try {
-      await adjustBalance({
-        userId: req.userId,
-
-        amount: -numericAmount,
-
-        type: "generalExpense",
-
-        description: reason,
-
-        date: parsedDate,
-
-        generalExpense:
-          generalExpense._id,
-      });
-    } catch (balanceErr) {
-      // Don't leave an orphan general expense.
-      await GeneralExpense.findByIdAndDelete(
-        generalExpense._id
-      );
-
-      throw balanceErr;
-    }
+    // NOTE: General expenses no longer deduct from the shared balance.
+    // Only project Expenses affect the balance.
 
     logActivity({
       userId: req.userId,
