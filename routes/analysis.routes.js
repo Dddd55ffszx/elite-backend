@@ -380,7 +380,7 @@ router.get("/details/:type", auth, async (req, res) => {
     projects.forEach((p) => { projectMap[p._id.toString()] = p; });
 
     const listTypes = ["actual-sales", "realised-sales", "unpaid-installments", "total-expenses", "commissions"];
-    const formulaTypes = ["realised-profit", "roi", "elite-indebtedness", "net-debt"];
+    const formulaTypes = ["actual-profit", "realised-profit", "roi", "elite-indebtedness", "net-debt"];
 
     if (!listTypes.includes(type) && !formulaTypes.includes(type)) {
       return res.status(400).json({ message: "Unknown detail type" });
@@ -576,7 +576,14 @@ router.get("/details/:type", auth, async (req, res) => {
     let terms = [];
     let result = {};
 
-    if (type === "realised-profit") {
+    if (type === "actual-profit") {
+      // Actual Profit = Actual Sales (paid + unpaid) - Total Expenses
+      terms = [
+        { label: "Actual Sales", value: totalActualSales + totalUnpaidInstallments, op: "" },
+        { label: "Total Expenses", value: totalExpenses, op: "-" },
+      ];
+      result = { label: "Actual Profit", value: totalActualSales + totalUnpaidInstallments - totalExpenses };
+    } else if (type === "realised-profit") {
       terms = [
         { label: "Realised Sales", value: totalActualSales, op: "" },
         { label: "Total Expenses", value: totalExpenses, op: "-" },
@@ -641,7 +648,11 @@ router.delete("/tadaem-micheal/:id", auth, async (req, res) => {
 // ===== EXPORT EXCEL =====
 router.get("/export", auth, async (req, res) => {
   try {
-    const { projectId, startYear, endYear, startDate, endDate } = req.query;
+    const { projectId, startYear, endYear, startDate, endDate, includeGeneralExpenses, includeCommissions } = req.query;
+
+    // Same switches as the Analysis screen: both default to included unless turned off.
+    const includeGE = includeGeneralExpenses !== "false";
+    const includeComm = includeCommissions !== "false";
 
     let filterStart = null;
     let filterEnd = null;
@@ -816,7 +827,10 @@ router.get("/export", auth, async (req, res) => {
 
     const yearlyData = Object.values(yearlyMap)
       .map((y) => {
-        y.totalExpenses = y.projectExpenses + y.generalExpenses + y.commissions;
+        y.totalExpenses =
+          y.projectExpenses +
+          (includeGE ? y.generalExpenses : 0) +
+          (includeComm ? y.commissions : 0);
         y.actualProfit = y.actualSales - y.totalExpenses;
         y.eliteIndebtedness = y.actualProfit + y.tadaemMicheal;
         // Realised Profit % = (Realised Sales - Total Expenses) / Realised Sales
@@ -876,249 +890,268 @@ router.get("/export", auth, async (req, res) => {
       }
     );
 
+    // ---------------------------------------------------------------------------
+    // Itemised rows (so the workbook shows everything behind the numbers)
+    // ---------------------------------------------------------------------------
+    const isGeneralExpenseInScope = (ge) => {
+      if (!ge.expenseDate) return false;
+      const geDate = new Date(ge.expenseDate);
+      if (hasFilter && !isInFilter(geDate)) return false;
+      return projects.some((proj) => {
+        const projStart = proj.startDate ? new Date(proj.startDate) : null;
+        const projEnd = proj.endDate ? new Date(proj.endDate) : null;
+        if (projStart && geDate < projStart) return false;
+        if (projEnd && geDate > projEnd) return false;
+        return true;
+      });
+    };
+
+    const realisedRows = [];
+    apartments.forEach((apt) => {
+      if (!apt.isSold) return;
+      const project = projectMap[apt.project.toString()];
+      const base = {
+        projectName: project?.name || "Unknown",
+        apartmentNumber: apt.apartmentId,
+        clientName: apt.client?.name || "",
+        paymentType: apt.paymentType === "cash" ? "Cash" : "Installments",
+      };
+      if (apt.paymentType === "cash" && (apt.payments || []).length === 0) {
+        const cashDate = apt.soldDate || apt.createdAt;
+        if (hasFilter && !isInFilter(cashDate)) return;
+        realisedRows.push({ ...base, date: cashDate, reason: "Cash sale", amount: apt.soldPrice || apt.price || 0 });
+        return;
+      }
+      (apt.payments || []).forEach((p) => {
+        if (p.isPaid !== true) return;
+        const payDate = p.paidDate || p.date;
+        if (hasFilter && !isInFilter(payDate)) return;
+        realisedRows.push({ ...base, date: payDate, reason: p.reason || "Installment payment", amount: Number(p.amount) || 0 });
+      });
+    });
+    realisedRows.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const projectExpenseRows = projectExpenses
+      .filter((e) => !hasFilter || isInFilter(e.date || e.createdAt))
+      .map((e) => ({
+        date: e.date || e.createdAt,
+        projectName: projectMap[e.project?.toString()]?.name || "Unknown",
+        reason: e.reason || "",
+        amount: Number(e.amount) || 0,
+      }))
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const generalExpenseRows = generalExpenses
+      .filter(isGeneralExpenseInScope)
+      .map((g) => ({ date: g.expenseDate, reason: g.reason || "", amount: Number(g.amount) || 0 }))
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const tadaemRows = tadaemMichealList
+      .filter((tm) => tm.expenseDate && (!hasFilter || isInFilter(tm.expenseDate)))
+      .map((tm) => ({ date: tm.expenseDate, reason: tm.reason || "", amount: Number(tm.amount) || 0 }))
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const commissionRows = allCommissions
+      .filter((c) => {
+        const d = c.date || c.createdAt;
+        return d && (!hasFilter || isInFilter(d));
+      })
+      .map((c) => ({
+        date: c.date || c.createdAt,
+        projectName: projectMap[c.project?.toString()]?.name || "Unknown",
+        label: c.label === "project" ? "Project (general)" : `Apt ${c.label}`,
+        amount: Number(c.amount) || 0,
+      }))
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // ---------------------------------------------------------------------------
+    // Workbook
+    // ---------------------------------------------------------------------------
     const ExcelJS = require("exceljs");
+    const X = require("../utils/Excelstyle");
     const workbook = new ExcelJS.Workbook();
-    const fmt = (n) => new Intl.NumberFormat("en-US").format(n || 0);
+    workbook.creator = "Elite For Contracting";
+    workbook.created = new Date();
+    workbook.modified = new Date();
 
-    const addSheetBanner = (sheet, colSpan, sheetTitle) => {
-      const lastCol = String.fromCharCode(64 + colSpan);
-      let nextRow = 1;
-
-      sheet.mergeCells(`A${nextRow}:${lastCol}${nextRow}`);
-      const titleCell = sheet.getCell(`A${nextRow}`);
-      titleCell.value     = sheetTitle.toUpperCase();
-      titleCell.font      = { bold: true, size: 14, color: { argb: "FFFFFFFF" } };
-      titleCell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D5C63" } };
-      titleCell.alignment = { horizontal: "center", vertical: "middle" };
-      sheet.getRow(nextRow).height = 30;
-      nextRow++;
-
-      if (singleProjectName) {
-        sheet.mergeCells(`A${nextRow}:${lastCol}${nextRow}`);
-        const cell = sheet.getCell(`A${nextRow}`);
-        cell.value     = `\u{1F3D7}  ${singleProjectName.toUpperCase()}`;
-        cell.font      = { bold: true, size: 12, color: { argb: "FFFFFFFF" } };
-        cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A2A3A" } };
-        cell.alignment = { horizontal: "center", vertical: "middle" };
-        sheet.getRow(nextRow).height = 26;
-        nextRow++;
-      }
-
-      if (periodText) {
-        sheet.mergeCells(`A${nextRow}:${lastCol}${nextRow}`);
-        const cell = sheet.getCell(`A${nextRow}`);
-        cell.value     = `\u{1F4C5}  Period: ${periodText}`;
-        cell.font      = { bold: true, size: 11, color: { argb: "FF1A2A3A" } };
-        cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE4B504" } };
-        cell.alignment = { horizontal: "center", vertical: "middle" };
-        sheet.getRow(nextRow).height = 22;
-        nextRow++;
-      }
-
-      return nextRow;
-    };
-
-    const styleHeader = (sheet, headerRowNum) => {
-      const header = sheet.getRow(headerRowNum);
-      header.font      = { bold: true, color: { argb: "FFFFFFFF" } };
-      header.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E79" } };
-      header.alignment = { horizontal: "center", vertical: "middle" };
-      header.height    = 25;
-      sheet.eachRow((row, rowNum) => {
-        if (rowNum <= headerRowNum) return;
-        row.eachCell((cell) => {
-          cell.border = {
-            top: { style: "thin" }, left: { style: "thin" },
-            bottom: { style: "thin" }, right: { style: "thin" },
-          };
-        });
-        if (rowNum % 2 === 0) row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2F2F2" } };
-      });
-    };
-
-    // ========== Sheet 1: Yearly Breakdown (now includes commissions column) ==========
-    const ys = workbook.addWorksheet("Yearly Breakdown");
-    ys.columns = [
-      { key: "year",               width: 8  },
-      { key: "projectNames",       width: 40 },
-      { key: "estimatedSales",     width: 22 },
-      { key: "actualSales",        width: 20 },
-      { key: "unpaidInstallments", width: 24 },
-      { key: "projectExpenses",    width: 22 },
-      { key: "generalExpenses",    width: 22 },
-      { key: "commissions",        width: 22 }, // NEW
-      { key: "totalExpenses",      width: 20 },
-      { key: "actualProfit",       width: 20 },
-      { key: "tadaemMicheal",      width: 22 },
-      { key: "eliteIndebtedness",  width: 24 },
-      { key: "profitMargin",       width: 15 },
-      { key: "soldCount",          width: 12 },
-      { key: "totalUnits",         width: 12 },
+    // Lines describing exactly which filters were applied, repeated on every sheet
+    const filterLines = [
+      `Scope: ${singleProjectName ? singleProjectName : "All projects"}  |  Period: ${periodText || "All time"}`,
+      `General expenses: ${includeGE ? "Included" : "Excluded"}  |  Commissions: ${includeComm ? "Included" : "Excluded"} (in total expenses & profit)`,
+      `Generated on ${new Date().toLocaleDateString("en-GB")}`,
     ];
-    const ysHeaderRow = addSheetBanner(ys, 15, "Yearly Breakdown");
-    const ysHeaders = ys.getRow(ysHeaderRow);
-    [
-      "Year","Project Names","Actual Sales (EGP)","Realised Sales (EGP)",
-      "Unpaid Installments (EGP)","Project Expenses (EGP)","General Expenses (EGP)",
-      "Commissions (EGP)",  // NEW
-      "Total Expenses (EGP)","Realised Profit (EGP)","Tadaem Micheal (EGP)",
-      "Elite Indebtedness (EGP)","Profit Margin","Sold Units","Total Units",
-    ].forEach((h, i) => ysHeaders.getCell(i + 1).value = h);
-    ysHeaders.commit();
 
-    yearlyData.forEach((r) => ys.addRow({
-      year: r.year, projectNames: r.projectNames || "",
-      estimatedSales: fmt(r.estimatedSales), actualSales: fmt(r.actualSales),
-      unpaidInstallments: fmt(r.unpaidInstallments), projectExpenses: fmt(r.projectExpenses),
-      generalExpenses: fmt(r.generalExpenses),
-      commissions: fmt(r.commissions), // NEW
-      totalExpenses: fmt(r.totalExpenses),
-      actualProfit: fmt(r.actualProfit), tadaemMicheal: fmt(r.tadaemMicheal),
-      eliteIndebtedness: fmt(r.eliteIndebtedness),
-      profitMargin: r.profitMargin.toFixed(2) + "%",
-      soldCount: r.soldCount, totalUnits: r.totalUnits,
-    }));
-    styleHeader(ys, ysHeaderRow);
+    const profitPct = summary.totalActualSales ? summary.totalActualProfit / summary.totalActualSales : 0;
 
-    // ========== Sheet 2: Summary ==========
-    const ss = workbook.addWorksheet("Summary");
-    ss.columns = [{ key: "metric", width: 35 }, { key: "value", width: 30 }];
-    const ssHeaderRow = addSheetBanner(ss, 2, "Summary");
-    const ssHeaders = ss.getRow(ssHeaderRow);
-    ssHeaders.getCell(1).value = "Metric";
-    ssHeaders.getCell(2).value = "Value";
-    ssHeaders.commit();
+    // ===== Sheet 1: Summary =====
+    const ss = X.createSheet(workbook, "Summary", { tabColor: X.COLORS.navy, landscape: false });
+    X.setWidths(ss, [42, 28]);
+    let r = X.addBanner(ss, 2, "Analysis Summary", filterLines);
 
-    ss.addRows([
-      { metric: "Total Actual Sales",             value: fmt(summary.totalEstimatedSales)     + " EGP" },
-      { metric: "Total Realised Sales",            value: fmt(summary.totalActualSales)        + " EGP" },
-      { metric: "Total Unpaid Installments",       value: fmt(summary.totalUnpaidInstallments) + " EGP" },
-      { metric: "Total Expenses (incl. commissions)", value: fmt(summary.totalExpenses)        + " EGP" },
-      { metric: "Total Commissions",               value: fmt(summary.totalCommissions)        + " EGP" }, // NEW
-      { metric: "Total Realised Profit",           value: fmt(summary.totalActualProfit)       + " EGP" },
-      { metric: "Total Tadaem Micheal",            value: fmt(summary.totalTadaemMicheal)      + " EGP" },
-      { metric: "Elite Indebtedness",              value: fmt(summary.totalEliteIndebtedness)  + " EGP" },
-      { metric: "Total Sold Units",                value: summary.totalSold },
-      { metric: "Total Units",                     value: summary.totalUnits },
-      {
-        metric: "Overall Profit Margin",
-        value: summary.totalExpenses
-          ? ((summary.totalActualProfit / summary.totalExpenses) * 100).toFixed(2) + "%"
-          : "0%",
-      },
+    r = X.addSection(ss, r, 2, "Sales (EGP)");
+    r = X.addKeyValue(ss, r, [
+      { label: "Actual Sales", value: summary.totalEstimatedSales, type: "money" },
+      { label: "Realised Sales (received)", value: summary.totalActualSales, type: "money" },
+      { label: "Unpaid Installments", value: summary.totalUnpaidInstallments, type: "money", tone: "warn" },
     ]);
-    styleHeader(ss, ssHeaderRow);
 
-    // ========== Sheet 3: General Expenses ==========
-    const es = workbook.addWorksheet("General Expenses");
-    es.columns = [{ key: "date", width: 15 }, { key: "reason", width: 50 }, { key: "amount", width: 20 }];
-    const esHeaderRow = addSheetBanner(es, 3, "General Expenses");
-    const esHeaders = es.getRow(esHeaderRow);
-    ["Date", "Reason", "Amount (EGP)"].forEach((h, i) => esHeaders.getCell(i + 1).value = h);
-    esHeaders.commit();
-    generalExpenses
-      .filter((ge) => !hasFilter || isInFilter(ge.expenseDate))
-      .forEach((exp) => {
-        es.addRow({
-          date:   exp.expenseDate ? new Date(exp.expenseDate).toLocaleDateString("en-GB") : "",
-          reason: exp.reason,
-          amount: fmt(exp.amount),
-        });
-      });
-    styleHeader(es, esHeaderRow);
-
-    // ========== Sheet 4: Tadaem Micheal ==========
-    const ts = workbook.addWorksheet("Tadaem Micheal");
-    ts.columns = [{ key: "date", width: 15 }, { key: "reason", width: 50 }, { key: "amount", width: 20 }];
-    const tsHeaderRow = addSheetBanner(ts, 3, "Tadaem Micheal");
-    const tsHeaders = ts.getRow(tsHeaderRow);
-    ["Date", "Reason", "Amount (EGP)"].forEach((h, i) => tsHeaders.getCell(i + 1).value = h);
-    tsHeaders.commit();
-    const filteredTmExport = tadaemMichealList.filter((tm) => !hasFilter || isInFilter(tm.expenseDate));
-    filteredTmExport.forEach((tm) => {
-      ts.addRow({
-        date:   tm.expenseDate ? new Date(tm.expenseDate).toLocaleDateString("en-GB") : "",
-        reason: tm.reason,
-        amount: fmt(tm.amount),
-      });
-    });
-    const tmTotalRow = ts.addRow({
-      date: "TOTAL", reason: "",
-      amount: fmt(filteredTmExport.reduce((s, t) => s + (t.amount || 0), 0)),
-    });
-    tmTotalRow.font = { bold: true };
-    tmTotalRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE6F0FA" } };
-    styleHeader(ts, tsHeaderRow);
-
-    // ========== Sheet 5: Commissions (NEW) ==========
-    const cs = workbook.addWorksheet("Commissions");
-    cs.columns = [
-      { key: "date",        width: 15 },
-      { key: "project",     width: 30 },
-      { key: "label",       width: 25 },
-      { key: "amount",      width: 20 },
+    r = X.addSection(ss, r, 2, "Expenses (EGP)");
+    const expItems = [
+      { label: "Project Expenses", value: yearlyData.reduce((s, y) => s + y.projectExpenses, 0), type: "money", bold: false },
     ];
-    const csHeaderRow = addSheetBanner(cs, 4, "Commissions");
-    const csHeaders = cs.getRow(csHeaderRow);
-    ["Date", "Project", "For (Apt / Project)", "Amount (EGP)"].forEach((h, i) => csHeaders.getCell(i + 1).value = h);
-    csHeaders.commit();
+    if (includeGE) expItems.push({ label: "General Expenses", value: yearlyData.reduce((s, y) => s + y.generalExpenses, 0), type: "money", bold: false });
+    if (includeComm) expItems.push({ label: "Commissions", value: summary.totalCommissions, type: "money", tone: "purple", bold: false });
+    expItems.push({ label: "Total Expenses", value: summary.totalExpenses, type: "money", tone: "bad" });
+    r = X.addKeyValue(ss, r, expItems);
 
-    const filteredCommExport = allCommissions.filter((c) => {
-      const d = c.date || c.createdAt;
-      return !hasFilter || isInFilter(d);
-    });
-    filteredCommExport.forEach((c) => {
-      const proj = projectMap[c.project?.toString()];
-      cs.addRow({
-        date:    c.date ? new Date(c.date).toLocaleDateString("en-GB") : "",
-        project: proj ? proj.name : "Unknown",
-        label:   c.label === "project" ? "Project (general)" : `Apt ${c.label}`,
-        amount:  fmt(c.amount),
-      });
-    });
-    const commTotalRow = cs.addRow({
-      date: "TOTAL", project: "", label: "",
-      amount: fmt(filteredCommExport.reduce((s, c) => s + (c.amount || 0), 0)),
-    });
-    commTotalRow.font = { bold: true };
-    commTotalRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5EEFF" } };
-    styleHeader(cs, csHeaderRow);
+    r = X.addSection(ss, r, 2, "Profit");
+    r = X.addKeyValue(ss, r, [
+      { label: "Realised Profit", value: summary.totalActualProfit, type: "money", autoTone: true },
+      { label: "Realised Profit %", value: profitPct, type: "percent", autoTone: true },
+      { label: "Tadaem Micheal", value: summary.totalTadaemMicheal, type: "money", bold: false },
+      { label: "Elite Indebtedness", value: summary.totalEliteIndebtedness, type: "money", autoTone: true },
+    ]);
 
-    // ========== Sheet 6: Installment Schedule ==========
-    const isSheet = workbook.addWorksheet("Installment Schedule");
-    isSheet.columns = [
-      { key: "projectName",     width: 20 },
-      { key: "apartmentNumber", width: 10 },
-      { key: "clientName",      width: 20 },
-      { key: "amount",          width: 15 },
-      { key: "dueDate",         width: 15 },
-      { key: "reason",          width: 25 },
-      { key: "status",          width: 12 },
+    r = X.addSection(ss, r, 2, "Units");
+    X.addKeyValue(ss, r, [
+      { label: "Sold Units", value: summary.totalSold, type: "int" },
+      { label: "Total Units", value: summary.totalUnits, type: "int", bold: false },
+    ]);
+
+    // ===== Sheet 2: Yearly Breakdown =====
+    const ys = X.createSheet(workbook, "Yearly Breakdown", { tabColor: "FF2563EB" });
+    const yCols = [
+      { header: "Year", key: "year", width: 8, type: "int" },
+      { header: "Projects", key: "projectNames", width: 34, type: "text" },
+      { header: "Actual Sales (EGP)", key: "estimatedSales", width: 20, type: "money" },
+      { header: "Realised Sales (EGP)", key: "actualSales", width: 20, type: "money" },
+      { header: "Unpaid Installments (EGP)", key: "unpaidInstallments", width: 22, type: "money" },
+      { header: "Project Expenses (EGP)", key: "projectExpenses", width: 21, type: "money" },
     ];
-    const isHeaderRow = addSheetBanner(isSheet, 7, "Installment Schedule");
-    const isHeaders = isSheet.getRow(isHeaderRow);
-    ["Project", "Apt #", "Client", "Amount (EGP)", "Due Date", "Reason", "Status"]
-      .forEach((h, i) => isHeaders.getCell(i + 1).value = h);
-    isHeaders.commit();
-    scheduleRows.forEach((item) => {
-      isSheet.addRow({
-        projectName: item.projectName, apartmentNumber: item.apartmentNumber,
-        clientName: item.clientName, amount: fmt(item.amount),
-        dueDate: new Date(item.dueDate).toLocaleDateString("en-GB"),
-        reason: item.reason, status: item.isOverdue ? "Overdue" : "Due",
-      });
-    });
-    styleHeader(isSheet, isHeaderRow);
-    const totalRow = isSheet.addRow({
-      projectName: "TOTAL", apartmentNumber: "", clientName: "",
-      amount: fmt(scheduleRows.reduce((s, i) => s + (i.amount || 0), 0)),
-      dueDate: "", reason: "", status: "",
-    });
-    totalRow.font = { bold: true };
-    totalRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE6F0FA" } };
+    if (includeGE) yCols.push({ header: "General Expenses (EGP)", key: "generalExpenses", width: 21, type: "money" });
+    if (includeComm) yCols.push({ header: "Commissions (EGP)", key: "commissions", width: 19, type: "money" });
+    yCols.push(
+      { header: "Total Expenses (EGP)", key: "totalExpenses", width: 20, type: "money" },
+      { header: "Realised Profit (EGP)", key: "actualProfit", width: 20, type: "money" },
+      { header: "Profit %", key: "profitMargin", width: 11, type: "percent" },
+      { header: "Tadaem Micheal (EGP)", key: "tadaemMicheal", width: 20, type: "money" },
+      { header: "Elite Indebtedness (EGP)", key: "eliteIndebtedness", width: 22, type: "money" },
+      { header: "Sold Units", key: "soldCount", width: 11, type: "int" },
+      { header: "Total Units", key: "totalUnits", width: 11, type: "int" }
+    );
+    X.setWidths(ys, yCols.map((c) => c.width));
+    const yr = X.addBanner(ys, yCols.length, "Yearly Breakdown", filterLines);
+    X.addTable(
+      ys,
+      yr,
+      yCols,
+      yearlyData.map((y) => ({ ...y, profitMargin: (y.profitMargin || 0) / 100 })),
+      {
+        totals: yCols.filter((c) => c.type === "money" || (c.type === "int" && c.key !== "year")).map((c) => c.key),
+        cellStyle: (row, col, cell) => {
+          if (col.key === "actualProfit" || col.key === "profitMargin") {
+            const v = col.key === "actualProfit" ? row.actualProfit : row.profitMargin;
+            cell.font = { name: X.FONT, size: 10, bold: true, color: { argb: v < 0 ? X.COLORS.red : X.COLORS.green } };
+          }
+        },
+      }
+    );
 
+    // ===== Sheet 3: Realised Sales (every payment received) =====
+    const rs = X.createSheet(workbook, "Realised Sales", { tabColor: "FF16A34A" });
+    const rsCols = [
+      { header: "Date", key: "date", width: 13, type: "date" },
+      { header: "Project", key: "projectName", width: 26, type: "text" },
+      { header: "Apt #", key: "apartmentNumber", width: 10, type: "text" },
+      { header: "Client", key: "clientName", width: 26, type: "text" },
+      { header: "Payment Type", key: "paymentType", width: 15, type: "text" },
+      { header: "Reason", key: "reason", width: 28, type: "text" },
+      { header: "Amount (EGP)", key: "amount", width: 18, type: "money" },
+    ];
+    X.setWidths(rs, rsCols.map((c) => c.width));
+    const rsr = X.addBanner(rs, rsCols.length, "Realised Sales - Payments Received", filterLines);
+    X.addTable(rs, rsr, rsCols, realisedRows, { totals: ["amount"] });
+
+    // ===== Sheet 4: Project Expenses =====
+    const pe = X.createSheet(workbook, "Project Expenses", { tabColor: "FFDC2626" });
+    const peCols = [
+      { header: "Date", key: "date", width: 13, type: "date" },
+      { header: "Project", key: "projectName", width: 28, type: "text" },
+      { header: "Reason", key: "reason", width: 50, type: "text" },
+      { header: "Amount (EGP)", key: "amount", width: 18, type: "money" },
+    ];
+    X.setWidths(pe, peCols.map((c) => c.width));
+    const per = X.addBanner(pe, peCols.length, "Project Expenses", filterLines);
+    X.addTable(pe, per, peCols, projectExpenseRows, { totals: ["amount"] });
+
+    // ===== Sheet 5: General Expenses (only when included) =====
+    if (includeGE) {
+      const es = X.createSheet(workbook, "General Expenses", { tabColor: "FFEA580C", landscape: false });
+      const eCols = [
+        { header: "Date", key: "date", width: 13, type: "date" },
+        { header: "Reason", key: "reason", width: 55, type: "text" },
+        { header: "Amount (EGP)", key: "amount", width: 18, type: "money" },
+      ];
+      X.setWidths(es, eCols.map((c) => c.width));
+      const er = X.addBanner(es, eCols.length, "General Expenses", filterLines);
+      X.addTable(es, er, eCols, generalExpenseRows, { totals: ["amount"] });
+    }
+
+    // ===== Sheet 6: Commissions (only when included) =====
+    if (includeComm) {
+      const cs = X.createSheet(workbook, "Commissions", { tabColor: "FF7C3AED", landscape: false });
+      const cCols = [
+        { header: "Date", key: "date", width: 13, type: "date" },
+        { header: "Project", key: "projectName", width: 28, type: "text" },
+        { header: "For (Apartment / Project)", key: "label", width: 28, type: "text" },
+        { header: "Amount (EGP)", key: "amount", width: 18, type: "money" },
+      ];
+      X.setWidths(cs, cCols.map((c) => c.width));
+      const cr = X.addBanner(cs, cCols.length, "Commissions", filterLines);
+      X.addTable(cs, cr, cCols, commissionRows, { totals: ["amount"] });
+    }
+
+    // ===== Sheet 7: Tadaem Micheal =====
+    const ts = X.createSheet(workbook, "Tadaem Micheal", { tabColor: "FF0891B2", landscape: false });
+    const tCols = [
+      { header: "Date", key: "date", width: 13, type: "date" },
+      { header: "Reason", key: "reason", width: 55, type: "text" },
+      { header: "Amount (EGP)", key: "amount", width: 18, type: "money" },
+    ];
+    X.setWidths(ts, tCols.map((c) => c.width));
+    const tr = X.addBanner(ts, tCols.length, "Tadaem Micheal", filterLines);
+    X.addTable(ts, tr, tCols, tadaemRows, { totals: ["amount"] });
+
+    // ===== Sheet 8: Installment Schedule (unpaid) =====
+    const is = X.createSheet(workbook, "Installment Schedule", { tabColor: "FFCA8A04" });
+    const iCols = [
+      { header: "Due Date", key: "dueDate", width: 13, type: "date" },
+      { header: "Project", key: "projectName", width: 26, type: "text" },
+      { header: "Apt #", key: "apartmentNumber", width: 10, type: "text" },
+      { header: "Client", key: "clientName", width: 26, type: "text" },
+      { header: "Reason", key: "reason", width: 28, type: "text" },
+      { header: "Amount (EGP)", key: "amount", width: 18, type: "money" },
+      { header: "Status", key: "status", width: 12, type: "text" },
+    ];
+    X.setWidths(is, iCols.map((c) => c.width));
+    const ir = X.addBanner(is, iCols.length, "Installment Schedule - Unpaid", filterLines);
+    X.addTable(
+      is,
+      ir,
+      iCols,
+      scheduleRows.map((i) => ({ ...i, status: i.isOverdue ? "Overdue" : "Due" })),
+      {
+        totals: ["amount"],
+        cellStyle: (row, col, cell) => {
+          if (col.key === "status") X.statusStyle(cell, row.status === "Overdue" ? "bad" : "warn");
+        },
+      }
+    );
+
+    const scopeName = singleProjectName ? X.safeFileName(singleProjectName) : "All_Projects";
+    const fileName = `Analysis_${scopeName}_${new Date().toISOString().split("T")[0]}.xlsx`;
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename=analysis_export_${Date.now()}.xlsx`);
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     await workbook.xlsx.write(res);
     res.end();
   } catch (err) {
