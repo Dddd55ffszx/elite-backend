@@ -9,18 +9,16 @@ const Project = require("../models/Project");
 const Expense = require("../models/Expense");
 const Apartment = require("../models/Apartment");
 const Commission = require("../models/Commission");
+const validate = require("../middleware/validate");
+const { projectSchema, projectUpdateSchema } = require("../validations/project.validation");
 const {
   deleteBalanceHistoryForProject,
 } = require("../utils/balanceHelper");
 const { logActivity } = require("../utils/activityLogger");
 // ================= CREATE PROJECT =================
-router.post("/", auth, async (req, res) => {
+router.post("/", auth, validate(projectSchema), async (req, res) => {
   try {
     const { name, location, startDate, endDate } = req.body;
-
-    if (!name || !location) {
-      return res.status(400).json({ message: "Name and location are required" });
-    }
 
     const projectData = {
       name,
@@ -275,7 +273,7 @@ router.get("/:id", auth, async (req, res) => {
 });
 
 // ================= UPDATE PROJECT =================
-router.put("/:id", auth, async (req, res) => {
+router.put("/:id", auth, validate(projectUpdateSchema), async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ message: "Invalid project ID format" });

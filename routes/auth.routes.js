@@ -2,10 +2,12 @@ const express = require("express");
 const router = express.Router();
 const authController = require("../controllers/authController");
 const authMiddleware = require("../middleware/auth");
+const validate = require("../middleware/validate");
+const { registerSchema, loginSchema } = require("../validations/auth.validation");
 
 // TEST ROUTE
 router.get("/test", (req, res) => {
-  res.json({ 
+  res.json({
     success: true,
     message: "Auth routes working",
     timestamp: new Date().toISOString()
@@ -13,7 +15,8 @@ router.get("/test", (req, res) => {
 });
 
 // PUBLIC ROUTES
-router.post("/login", authController.login);
+router.post("/register", validate(registerSchema), authController.register);
+router.post("/login", validate(loginSchema), authController.login);
 
 // PROTECTED ROUTES (require authentication)
 router.get("/me", authMiddleware, authController.getCurrentUser);

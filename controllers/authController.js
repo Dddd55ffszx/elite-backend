@@ -40,37 +40,12 @@ exports.register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Validate input
-    if (!name || !email || !password) {
-      return res.status(400).json({ 
-        success: false,
-        message: "Please provide all required fields" 
-      });
-    }
-
-    // Validate email format
-    const emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide a valid email address"
-      });
-    }
-
-    // Validate password length
-    if (password.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: "Password must be at least 6 characters long"
-      });
-    }
-
     // Check if user exists
     const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
     if (existingUser) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: "User already exists with this email" 
+        message: "User already exists with this email"
       });
     }
 
@@ -107,9 +82,9 @@ exports.register = async (req, res) => {
 
   } catch (error) {
     console.error("Registration error:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: "Server error during registration" 
+      message: "Server error during registration"
     });
   }
 };
@@ -120,48 +95,40 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validate input
-    if (!email || !password) {
-      return res.status(400).json({ 
-        success: false,
-        message: "Email and password are required" 
-      });
-    }
-
     // Check user - IMPORTANT: Need to select password explicitly
     const user = await User.findOne({ email: email.toLowerCase().trim() }).select("+password");
-    
+
     if (!user) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        message: "Invalid email or password" 
+        message: "Invalid email or password"
       });
     }
 
     // Check if user has password
     if (!user.password) {
       console.error("User found but password field is missing:", user.email);
-      return res.status(500).json({ 
+      return res.status(500).json({
         success: false,
-        message: "Server error - user data incomplete" 
+        message: "Server error - user data incomplete"
       });
     }
 
     // Check password
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
-    
+
     if (!isPasswordCorrect) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        message: "Invalid email or password" 
+        message: "Invalid email or password"
       });
     }
 
     // Check if approved
     if (!user.isApproved) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
-        message: "Your account is pending approval. Please wait for admin confirmation." 
+        message: "Your account is pending approval. Please wait for admin confirmation."
       });
     }
 
@@ -199,9 +166,9 @@ exports.login = async (req, res) => {
 
   } catch (error) {
     console.error("Login error:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: "Server error during login" 
+      message: "Server error during login"
     });
   }
 };

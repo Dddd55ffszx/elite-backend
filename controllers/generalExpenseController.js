@@ -1,4 +1,6 @@
 const GeneralExpense = require("../models/GeneralExpense");
+const Project = require("../models/Project");
+const Expense = require("../models/Expense");
 
 const {
   deleteBalanceHistoryForGeneralExpense,
@@ -176,6 +178,91 @@ exports.deleteGeneralExpense = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message,
+    });
+  }
+};
+
+// ============================================================
+// REDISTRIBUTE GENERAL EXPENSES
+// ============================================================
+
+exports.redistributeGeneralExpenses = async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    // 1. Fetch all projects and general expenses for this user
+    const projects = await Project.find({ user: userId }).sort({ createdAt: 1 });
+    const generalExpenses = await GeneralExpense.find({ user: userId });
+
+    if (projects.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No projects found to redistribute expenses to."
+      });
+    }
+
+    // 2. Clear existing distributions to avoid duplicates
+    await Expense.deleteMany({
+      user: userId,
+      isGeneralExpense: true
+    });
+
+    const redistributionDetails = [];
+
+    // 3. Loop through each general expense
+    for (const gExp of generalExpenses) {
+      const expenseDate = new Date(gExp.expenseDate);
+
+      // Filter projects that existed at the time of the expense
+      const eligibleProjects = projects.filter(proj =>
+        new Date(proj.createdAt) <= expenseDate
+      );
+
+      if (eligibleProjects.length === 0) continue;
+
+      const share = gExp.amount / eligibleProjects.length;
+
+      // Create an expense record for each eligible project
+      const expensePromises = eligibleProjects.map(proj => {
+        return Expense.create({
+          project: proj._id,
+          reason: `[GENERAL] ${gExp.reason}`,
+          amount: share,
+          date: gExp.expenseDate,
+          user: userId,
+          isGeneralExpense: true,
+          generalExpenseId: gExp._id
+        });
+      });
+
+      await Promise.all(expensePromises);
+
+      redistributionDetails.push({
+        generalExpenseId: gExp._id,
+        distributedTo: eligibleProjects.length,
+        amountPerProject: share
+      });
+    }
+
+    logActivity({
+      userId,
+      action: "redistribute",
+      entityType: "GeneralExpense",
+      description: "Redistributed all general expenses across eligible projects",
+    });
+
+    res.json({
+      success: true,
+      message: "General expenses redistributed successfully",
+      details: redistributionDetails
+    });
+
+  } catch (error) {
+    console.error("Redistribute general expenses error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error during redistribution",
+      error: error.message
     });
   }
 };
